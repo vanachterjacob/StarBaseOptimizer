@@ -15,6 +15,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       id: 'case1',
       name: 'Auto-set First Response Sent',
       description: 'Automatically sets "First Response Sent" to "Yes" when sending emails in support cases'
+    },
+    {
+      id: 'imageLightbox',
+      name: 'Image Lightbox',
+      description: 'Display timeline images in fullscreen lightbox when clicked'
     }
     // Future modules will be added here automatically as they're created
   ];
