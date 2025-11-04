@@ -278,6 +278,29 @@ input:checked + .slider:before {
   margin-bottom: 0;
 }
 
+.feedback-link {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.feedback-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.feedback-link:active {
+  transform: translateY(0);
+}
+
 .footer {
   padding: 12px 20px;
   background: #f5f5f5;
