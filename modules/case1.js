@@ -15,11 +15,35 @@ class Case1Handler extends BaseHandler {
   }
 
   /**
+   * Check if we're on a case page (not dashboard or other pages)
+   * @returns {boolean} true if on a case page
+   */
+  isOnCasePage() {
+    const url = window.location.href;
+
+    // Check for incident/case entity indicators in URL
+    // Case pages have etn=incident (entity name) or etc=112 (entity type code for incidents)
+    const isCasePage = url.includes('etn=incident') ||
+                       url.includes('etc=112') ||
+                       (url.includes('pagetype=entityrecord') && (url.includes('incident') || url.includes('etc=112')));
+
+    return isCasePage;
+  }
+
+  /**
    * Initialize Case 1 handler
    * @param {Object} context - {isIframe: boolean}
    */
   async init(context) {
     console.log('[Case 1] Initializing...', context.isIframe ? '[IFRAME]' : '[MAIN WINDOW]');
+
+    // Only run on case pages, not on dashboard
+    if (!this.isOnCasePage()) {
+      console.log('[Case 1] Not on a case page - skipping initialization');
+      return;
+    }
+
+    console.log('[Case 1] Confirmed we are on a case page - proceeding with initialization');
 
     try {
       if (context.isIframe) {
