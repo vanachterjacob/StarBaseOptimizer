@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StarBase Optimizer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>StarBase Optimizer</h1>
+      <p class="subtitle">Dynamics 365 CRM Automation</p>
+    </div>
+
+    <div class="content">
+      <div class="toggle-section">
+        <div class="toggle-info">
+          <h2>Extension Status</h2>
+          <p class="description">Enable or disable automation features</p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="enabledToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="status" id="status">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <span id="statusText">Checking status...</span>
+      </div>
+
+      <div class="features">
+        <h3>Active Features</h3>
+        <ul>
+          <li>
+            <span class="feature-icon">✓</span>
+            <div class="feature-info">
+              <strong>Case 1:</strong> Auto-set "First Response Sent" to Yes
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="info">
+        <p><strong>Version:</strong> 1.0.0</p>
+        <p><strong>Target:</strong> starbase.crm4.dynamics.com</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>StarBase Support Tool Optimizer</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

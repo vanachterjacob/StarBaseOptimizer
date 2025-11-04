@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "StarBase Optimizer",
+  "version": "1.0.0",
+  "description": "Automates workflows in Microsoft Dynamics 365 CRM for StarBase support team",
+  "permissions": [
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://starbase.crm4.dynamics.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://starbase.crm4.dynamics.com/*"],
+      "js": [
+        "utils/observer.js",
+        "utils/notifications.js",
+        "modules/case1.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
