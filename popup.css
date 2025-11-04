@@ -168,6 +168,83 @@ input:checked + .slider:before {
   margin-bottom: 8px;
 }
 
+/* New feature item styles for per-feature toggles */
+.feature-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: #f9f9f9;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: background 0.2s;
+}
+
+.feature-item:hover {
+  background: #f0f0f0;
+}
+
+.feature-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.feature-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.feature-status {
+  font-size: 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.feature-status.enabled {
+  color: #4CAF50;
+}
+
+.feature-status.disabled {
+  color: #ccc;
+}
+
+.feature-name {
+  font-size: 13px;
+  color: #333;
+  font-weight: 600;
+}
+
+.feature-description {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #666;
+  margin: 0;
+  padding-left: 24px;
+}
+
+/* Smaller toggle switch for individual features */
+.toggle-switch-small {
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.toggle-switch-small .slider:before {
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+}
+
+.toggle-switch-small input:checked + .slider:before {
+  transform: translateX(18px);
+}
+
 .feature-icon {
   color: #4CAF50;
   font-weight: bold;

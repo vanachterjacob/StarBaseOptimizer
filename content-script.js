@@ -1,6 +1,6 @@
 /**
  * StarBase Optimizer - Content Script
- * Main entry point for the Chrome extension
+ * Main entry point for the Chrome extension - now using modular architecture
  */
 
 (function() {
@@ -14,7 +14,7 @@
   let isInitialized = false;
 
   /**
-   * Initialize the extension
+   * Initialize the extension using module registry
    */
   async function initialize() {
     if (isInitialized) {
@@ -32,49 +32,45 @@
       console.log('[StarBase Optimizer' + frameInfo + '] Extension enabled:', isEnabled);
 
       if (isEnabled) {
-        if (isInIframe) {
-          // In iframe: only watch for send button clicks
-          console.log('[StarBase Optimizer' + frameInfo + '] In iframe - only watching send button');
-          case1Handler.watchSendButton();
-          // Mark as initialized after a delay to avoid catching existing UI
-          setTimeout(() => {
-            case1Handler.initialized = true;
-            console.log('[StarBase Optimizer' + frameInfo + '] Iframe initialized - now monitoring send button');
-          }, 2000);
-        } else {
-          // In main window: full initialization
-          console.log('[StarBase Optimizer' + frameInfo + '] In main window - full initialization');
-          await case1Handler.init();
+        // Create initialization context
+        const context = {
+          isIframe: isInIframe
+        };
 
-          // Listen for messages from iframes (email sent events)
-          window.addEventListener('message', async (event) => {
-            // Verify origin for security
-            if (event.origin !== 'https://starbase.crm4.dynamics.com') {
-              return;
-            }
+        // Initialize all registered modules using the registry
+        console.log('[StarBase Optimizer' + frameInfo + '] Initializing modules...');
+        const stats = await moduleRegistry.initializeAll(context);
 
-            // Check if it's our message
-            if (event.data && event.data.type === 'STARBASE_OPTIMIZER_EMAIL_SENT' && event.data.source === 'starbase-optimizer') {
-              console.log('[StarBase Optimizer' + frameInfo + '] Received email sent message from iframe');
-              // Update the field
-              await case1Handler.updateField();
-            }
-          });
+        console.log(
+          `[StarBase Optimizer' + frameInfo + '] Initialization complete:`,
+          `${stats.success} succeeded, ${stats.failed} failed, ${stats.total} total`
+        );
 
-          notificationManager.info('StarBase Optimizer is active', 2000);
+        // Show notification only in main window
+        if (!isInIframe && stats.success > 0) {
+          notificationManager.info(
+            `StarBase Optimizer active (${stats.success} feature${stats.success > 1 ? 's' : ''})`,
+            2000
+          );
         }
       } else {
         console.log('[StarBase Optimizer' + frameInfo + '] Extension is disabled, skipping initialization');
       }
 
       isInitialized = true;
+
     } catch (error) {
       console.error('[StarBase Optimizer' + frameInfo + '] Initialization error:', error);
+
+      // Show error notification in main window
+      if (!isInIframe) {
+        notificationManager.error('Failed to initialize StarBase Optimizer', 3000);
+      }
     }
   }
 
   /**
-   * Handle enable/disable messages from popup
+   * Handle enable/disable messages from popup or background
    */
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[StarBase Optimizer] Received message:', message);
@@ -84,14 +80,45 @@
       console.log('[StarBase Optimizer] Extension toggled:', isEnabled);
 
       if (isEnabled && !isInitialized) {
+        // Extension was disabled and is now being enabled
         initialize();
-      } else if (!isEnabled) {
-        notificationManager.info('StarBase Optimizer is now disabled', 2000);
-      } else if (isEnabled) {
         notificationManager.info('StarBase Optimizer is now enabled', 2000);
+      } else if (!isEnabled && isInitialized) {
+        // Extension was enabled and is now being disabled
+        notificationManager.info('StarBase Optimizer is now disabled', 2000);
+        // Note: We don't cleanup modules here to avoid breaking ongoing operations
+        // They will be re-initialized on next page load
+      } else if (isEnabled) {
+        notificationManager.info('StarBase Optimizer is already enabled', 2000);
       }
 
       sendResponse({ success: true });
+    }
+
+    else if (message.type === 'MODULE_TOGGLED') {
+      // Handle individual module toggle
+      const { moduleId, enabled } = message;
+      console.log(`[StarBase Optimizer] Module ${moduleId} toggled:`, enabled);
+
+      const context = { isIframe: isInIframe };
+
+      moduleRegistry.toggleModule(moduleId, enabled, context)
+        .then(success => {
+          if (success) {
+            const action = enabled ? 'enabled' : 'disabled';
+            const module = moduleRegistry.getModule(moduleId);
+            if (module && !isInIframe) {
+              notificationManager.info(`${module.name} ${action}`, 2000);
+            }
+          }
+          sendResponse({ success });
+        })
+        .catch(error => {
+          console.error(`[StarBase Optimizer] Error toggling module ${moduleId}:`, error);
+          sendResponse({ success: false, error: error.message });
+        });
+
+      return true; // Keep message channel open for async response
     }
 
     return true; // Keep the message channel open for async response

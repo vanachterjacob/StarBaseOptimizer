@@ -14,10 +14,11 @@
     </div>
 
     <div class="content">
+      <!-- Global Toggle -->
       <div class="toggle-section">
         <div class="toggle-info">
           <h2>Extension Status</h2>
-          <p class="description">Enable or disable automation features</p>
+          <p class="description">Enable or disable all automation features</p>
         </div>
         <label class="toggle-switch">
           <input type="checkbox" id="enabledToggle">
@@ -25,23 +26,26 @@
         </label>
       </div>
 
+      <!-- Status Indicator -->
       <div class="status" id="status">
         <div class="status-indicator" id="statusIndicator"></div>
         <span id="statusText">Checking status...</span>
       </div>
 
+      <!-- Features List with Individual Toggles -->
       <div class="features">
-        <h3>Active Features</h3>
-        <ul>
-          <li>
-            <span class="feature-icon">✓</span>
-            <div class="feature-info">
-              <strong>Case 1:</strong> Auto-set "First Response Sent" to Yes
-            </div>
-          </li>
-        </ul>
+        <h3>Features</h3>
+        <div id="featuresList">
+          <!-- Features will be dynamically populated by popup.js -->
+          <div class="feature-loading">
+            <p style="font-size: 12px; color: #999; padding: 10px; text-align: center;">
+              Loading features...
+            </p>
+          </div>
+        </div>
       </div>
 
+      <!-- Info Section -->
       <div class="info">
         <p><strong>Version:</strong> 1.0.0</p>
         <p><strong>Target:</strong> starbase.crm4.dynamics.com</p>
