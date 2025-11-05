@@ -271,33 +271,208 @@ class Case3Handler extends BaseHandler {
   }
 
   /**
-   * Find start time field
+   * Find start time field (IMPROVED - prioritize datetime fields)
    */
   async findStartTimeField() {
     const selectors = [
+      // Priority 1: Datetime-specific selectors
+      'input[data-id*="scheduledstart"][type="text"]',
+      'input[data-id*="scheduledstart.fieldControl-datetime"]',
+      '[data-id*="scheduledstart.fieldControl-datetime-input"] input',
+
+      // Priority 2: Generic scheduledstart
       'input[data-id*="scheduledstart"]',
       '[data-id*="scheduledstart.fieldControl"] input',
+
+      // Priority 3: By aria-label (but exclude "Date of")
+      'input[aria-label*="Start"][aria-label*="Time"]',
+      'input[aria-label*="Begin"][aria-label*="tijd"]',
+
+      // Priority 4: Generic start fields
       'input[aria-label*="Start"]',
       'input[aria-label*="Begin"]',
       'input[data-id*="actualstart"]'
     ];
 
-    return this.findFieldBySelectors(selectors, 'Start Time');
+    const field = await this.findFieldBySelectors(selectors, 'Start Time');
+
+    // Validate that we got a datetime field, not just a date field
+    if (field && field.value) {
+      const ariaLabel = field.getAttribute('aria-label') || '';
+
+      // Reject date-only fields
+      if (ariaLabel.includes('Date of') && !ariaLabel.includes('Time')) {
+        console.warn('[Case 3] Found field is date-only (not datetime), searching for time component...');
+
+        // Try to find a separate time input near this date field
+        const timeField = await this.findTimeFieldNearDate(field);
+        if (timeField) {
+          console.log('[Case 3] Found separate time field, will combine them');
+          return this.createCombinedDateTimeField(field, timeField);
+        }
+      }
+
+      // Check if value contains time (has colon)
+      if (!field.value.includes(':')) {
+        console.warn('[Case 3] Start field value has no time component:', field.value);
+        // Try to find time field
+        const timeField = await this.findTimeFieldNearDate(field);
+        if (timeField) {
+          return this.createCombinedDateTimeField(field, timeField);
+        }
+      }
+    }
+
+    return field;
   }
 
   /**
-   * Find end time field
+   * Find a time field near a date field
+   */
+  async findTimeFieldNearDate(dateField) {
+    console.log('[Case 3] Searching for time field near date field...');
+
+    // Get the parent container
+    const container = dateField.closest('[data-id*="scheduledstart"]') || dateField.parentElement;
+    if (!container) return null;
+
+    // Look for time input in the same container or nearby
+    const timeSelectors = [
+      'input[aria-label*="Time"]',
+      'input[aria-label*="tijd"]',
+      'input[type="time"]',
+      'input[data-id*="time"]',
+      'input[placeholder*=":"]'
+    ];
+
+    for (const selector of timeSelectors) {
+      // Try within container first
+      let timeField = container.querySelector(selector);
+      if (timeField && this.isValidField(timeField)) {
+        console.log('[Case 3] ✓ Found time field in same container:', timeField);
+        return timeField;
+      }
+
+      // Try in parent container
+      const parent = container.parentElement;
+      if (parent) {
+        timeField = parent.querySelector(selector);
+        if (timeField && this.isValidField(timeField)) {
+          console.log('[Case 3] ✓ Found time field in parent container:', timeField);
+          return timeField;
+        }
+      }
+    }
+
+    // Try finding ANY time field on the page (last resort)
+    for (const selector of timeSelectors) {
+      const timeField = document.querySelector(selector);
+      if (timeField && this.isValidField(timeField) && timeField.value.includes(':')) {
+        console.log('[Case 3] ✓ Found time field on page:', timeField);
+        return timeField;
+      }
+    }
+
+    console.warn('[Case 3] Could not find time field near date field');
+    return null;
+  }
+
+  /**
+   * Create a virtual combined datetime field
+   */
+  createCombinedDateTimeField(dateField, timeField) {
+    console.log('[Case 3] Creating combined datetime field from date + time');
+
+    // Create a proxy object that combines both fields
+    const combined = {
+      dateField: dateField,
+      timeField: timeField,
+      isCombined: true,
+
+      get value() {
+        const dateVal = this.dateField.value || '';
+        const timeVal = this.timeField.value || '';
+
+        if (!dateVal) return '';
+
+        // Combine date and time
+        const combined = timeVal ? `${dateVal} ${timeVal}` : dateVal;
+        console.log('[Case 3] Combined field value:', { date: dateVal, time: timeVal, combined });
+        return combined;
+      },
+
+      getAttribute(name) {
+        return this.dateField.getAttribute(name);
+      },
+
+      get id() {
+        return this.dateField.id || '';
+      },
+
+      get disabled() {
+        return this.dateField.disabled || this.timeField.disabled;
+      },
+
+      get readOnly() {
+        return this.dateField.readOnly || this.timeField.readOnly;
+      },
+
+      focus() {
+        this.dateField.focus();
+      }
+    };
+
+    return combined;
+  }
+
+  /**
+   * Find end time field (IMPROVED - same strategy as start time)
    */
   async findEndTimeField() {
     const selectors = [
+      // Priority 1: Datetime-specific selectors
+      'input[data-id*="scheduledend"][type="text"]',
+      'input[data-id*="scheduledend.fieldControl-datetime"]',
+      '[data-id*="scheduledend.fieldControl-datetime-input"] input',
+
+      // Priority 2: Generic scheduledend
       'input[data-id*="scheduledend"]',
       '[data-id*="scheduledend.fieldControl"] input',
+
+      // Priority 3: By aria-label
+      'input[aria-label*="End"][aria-label*="Time"]',
+      'input[aria-label*="Eind"][aria-label*="tijd"]',
+
+      // Priority 4: Generic end fields
       'input[aria-label*="End"]',
       'input[aria-label*="Eind"]',
       'input[data-id*="actualend"]'
     ];
 
-    return this.findFieldBySelectors(selectors, 'End Time');
+    const field = await this.findFieldBySelectors(selectors, 'End Time');
+
+    // Same validation as start time
+    if (field && field.value) {
+      const ariaLabel = field.getAttribute('aria-label') || '';
+
+      if (ariaLabel.includes('Date of') && !ariaLabel.includes('Time')) {
+        console.warn('[Case 3] End field is date-only, searching for time component...');
+        const timeField = await this.findTimeFieldNearDate(field);
+        if (timeField) {
+          return this.createCombinedDateTimeField(field, timeField);
+        }
+      }
+
+      if (!field.value.includes(':')) {
+        console.warn('[Case 3] End field value has no time component:', field.value);
+        const timeField = await this.findTimeFieldNearDate(field);
+        if (timeField) {
+          return this.createCombinedDateTimeField(field, timeField);
+        }
+      }
+    }
+
+    return field;
   }
 
   /**
@@ -760,6 +935,12 @@ class Case3Handler extends BaseHandler {
       // Set loop prevention flag
       this.isUpdatingFields = true;
 
+      // Handle combined date+time fields differently
+      if (this.endTimeField.isCombined) {
+        console.log('[Case 3] Setting combined date+time field');
+        return await this.setCombinedDateTime(this.endTimeField, endTime);
+      }
+
       // Try multiple date formats for compatibility
       const formats = this.getDateFormatsForDynamics(endTime);
 
@@ -813,6 +994,72 @@ class Case3Handler extends BaseHandler {
       setTimeout(() => {
         this.isUpdatingFields = false;
       }, 1500);
+    }
+  }
+
+  /**
+   * Set combined date+time field (separate date and time inputs)
+   */
+  async setCombinedDateTime(combinedField, dateTime) {
+    console.log('[Case 3] Setting combined date+time:', dateTime.toLocaleString());
+
+    try {
+      const dateField = combinedField.dateField;
+      const timeField = combinedField.timeField;
+
+      // Format date (d/m/yyyy)
+      const day = String(dateTime.getDate()).padStart(2, '0');
+      const month = String(dateTime.getMonth() + 1).padStart(2, '0');
+      const year = dateTime.getFullYear();
+      const dateValue = `${day}/${month}/${year}`;
+
+      // Format time (HH:mm)
+      const hours = String(dateTime.getHours()).padStart(2, '0');
+      const minutes = String(dateTime.getMinutes()).padStart(2, '0');
+      const timeValue = `${hours}:${minutes}`;
+
+      console.log('[Case 3] Setting date to:', dateValue, 'and time to:', timeValue);
+
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      ).set;
+
+      // Set date field
+      dateField.focus();
+      await fieldUtils.sleep(100);
+      nativeInputValueSetter.call(dateField, dateValue);
+      dateField.dispatchEvent(new Event('input', { bubbles: true }));
+      await fieldUtils.sleep(50);
+      dateField.dispatchEvent(new Event('change', { bubbles: true }));
+      await fieldUtils.sleep(50);
+      dateField.dispatchEvent(new Event('blur', { bubbles: true }));
+      await fieldUtils.sleep(200);
+
+      // Set time field
+      timeField.focus();
+      await fieldUtils.sleep(100);
+      nativeInputValueSetter.call(timeField, timeValue);
+      timeField.dispatchEvent(new Event('input', { bubbles: true }));
+      await fieldUtils.sleep(50);
+      timeField.dispatchEvent(new Event('change', { bubbles: true }));
+      await fieldUtils.sleep(50);
+      timeField.dispatchEvent(new Event('blur', { bubbles: true }));
+      await fieldUtils.sleep(500);
+
+      // Verify
+      const verifiedDate = this.getFieldDate(combinedField);
+      if (verifiedDate && Math.abs(verifiedDate.getTime() - dateTime.getTime()) < 60000) {
+        console.log('[Case 3] ✓ Combined date+time set successfully');
+        return true;
+      }
+
+      console.warn('[Case 3] Failed to verify combined date+time');
+      return false;
+
+    } catch (e) {
+      console.error('[Case 3] Error setting combined date+time:', e);
+      return false;
     }
   }
 
