@@ -631,7 +631,13 @@ class Case3Handler extends BaseHandler {
 
       // Calculate new end time
       const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-      console.log('[Case 3] Calculated end time:', endTime.toLocaleString());
+      console.log('[Case 3] Calculation details:', {
+        startTime: startTime.toLocaleString(),
+        durationMinutes: durationMinutes,
+        durationHours: (durationMinutes / 60).toFixed(2),
+        calculatedEndTime: endTime.toLocaleString(),
+        addedMilliseconds: durationMinutes * 60000
+      });
 
       // Update the end time field with retry
       const success = await this.updateEndTimeWithRetry(endTime);
@@ -847,22 +853,74 @@ class Case3Handler extends BaseHandler {
   }
 
   /**
-   * Get date from field value
+   * Get date from field value (IMPROVED for Dynamics 365)
    */
   getFieldDate(field) {
-    if (!field || !field.value) {
+    if (!field) {
       return null;
     }
 
-    try {
-      const date = new Date(field.value);
-      if (!isNaN(date.getTime())) {
-        return date;
+    console.log('[Case 3] Getting field date from:', {
+      value: field.value,
+      ariaLabel: field.getAttribute('aria-label'),
+      title: field.getAttribute('title'),
+      id: field.id
+    });
+
+    // Try multiple approaches to get the date value
+    const valuesToTry = [
+      field.value,
+      field.getAttribute('value'),
+      field.getAttribute('aria-label'),
+      field.getAttribute('title')
+    ].filter(v => v && v.trim() !== '');
+
+    console.log('[Case 3] Trying to parse values:', valuesToTry);
+
+    for (const val of valuesToTry) {
+      try {
+        // Try direct Date parsing
+        const date = new Date(val);
+        if (!isNaN(date.getTime())) {
+          console.log('[Case 3] ✓ Successfully parsed date:', val, '→', date.toLocaleString());
+          return date;
+        }
+
+        // Try parsing European format: "5/11/2025 15:45"
+        // This might be interpreted incorrectly by Date constructor
+        const euroMatch = val.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+        if (euroMatch) {
+          const [_, day, month, year, hours, minutes] = euroMatch;
+          // Construct date explicitly
+          const date = new Date(
+            parseInt(year),
+            parseInt(month) - 1, // Month is 0-indexed
+            parseInt(day),
+            parseInt(hours),
+            parseInt(minutes)
+          );
+          if (!isNaN(date.getTime())) {
+            console.log('[Case 3] ✓ Parsed European format:', val, '→', date.toLocaleString());
+            return date;
+          }
+        }
+
+        // Try ISO format parsing
+        if (val.includes('T') || val.includes('Z')) {
+          const date = new Date(val);
+          if (!isNaN(date.getTime())) {
+            console.log('[Case 3] ✓ Parsed ISO format:', val, '→', date.toLocaleString());
+            return date;
+          }
+        }
+
+      } catch (e) {
+        console.log('[Case 3] Failed to parse:', val, e);
+        continue;
       }
-    } catch (e) {
-      console.warn('[Case 3] Could not parse field date:', e);
     }
 
+    console.warn('[Case 3] Could not parse any date from field');
     return null;
   }
 
@@ -876,35 +934,55 @@ class Case3Handler extends BaseHandler {
 
     const str = durationStr.toLowerCase().trim();
 
-    // Remove any currency symbols or other noise
-    const cleaned = str.replace(/[^\d:.a-z\s]/g, '');
+    // IMPORTANT: Replace comma with dot FIRST (European decimal notation)
+    // "5,5 hours" -> "5.5 hours"
+    const commaFixed = str.replace(',', '.');
+
+    // Remove any currency symbols or other noise (but keep dots and colons)
+    const cleaned = commaFixed.replace(/[^\d:.a-z\s]/g, '');
+
+    console.log('[Case 3] Duration parsing:', {
+      original: durationStr,
+      commaFixed: commaFixed,
+      cleaned: cleaned
+    });
 
     // Format: "X hour(s)" or "X uur/uren"
     let match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:hour|uur|uren|hr|h|u)(?!r)/);
     if (match) {
-      return parseFloat(match[1]) * 60;
+      const hours = parseFloat(match[1]);
+      const minutes = hours * 60;
+      console.log('[Case 3] Parsed as hours:', hours, '→', minutes, 'minutes');
+      return minutes;
     }
 
     // Format: "X minute(s)" or "X minuten/minuut"
     match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:minute|minuten|minuut|min|m)/);
     if (match) {
-      return parseFloat(match[1]);
+      const minutes = parseFloat(match[1]);
+      console.log('[Case 3] Parsed as minutes:', minutes);
+      return minutes;
     }
 
     // Format: "H:MM" or "HH:MM"
     match = cleaned.match(/(\d+):(\d+)/);
     if (match) {
       const hours = parseInt(match[1]);
-      const minutes = parseInt(match[2]);
-      return hours * 60 + minutes;
+      const mins = parseInt(match[2]);
+      const totalMinutes = hours * 60 + mins;
+      console.log('[Case 3] Parsed as H:MM:', hours, ':', mins, '→', totalMinutes, 'minutes');
+      return totalMinutes;
     }
 
     // Format: just a number (assume minutes)
     match = cleaned.match(/^(\d+(?:\.\d+)?)$/);
     if (match) {
-      return parseFloat(match[1]);
+      const minutes = parseFloat(match[1]);
+      console.log('[Case 3] Parsed as plain number (minutes):', minutes);
+      return minutes;
     }
 
+    console.warn('[Case 3] Could not parse duration:', durationStr);
     return null;
   }
 
