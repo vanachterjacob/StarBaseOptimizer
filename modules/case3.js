@@ -388,7 +388,7 @@ class Case3Handler extends BaseHandler {
       }, 500); // Wait 500ms after user stops typing
     };
 
-    // Change event (when user finishes editing)
+    // Change event (when user finishes editing - fires on Tab)
     const changeHandler = (event) => {
       console.log('[Case 3] 🔔 Change event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
 
@@ -397,12 +397,12 @@ class Case3Handler extends BaseHandler {
         return;
       }
 
-      console.log('[Case 3] Duration changed');
+      console.log('[Case 3] Duration changed (Tab pressed)');
       clearTimeout(this.durationDebounceTimer); // Cancel debounce
       this.handleDurationChange(event);
     };
 
-    // Blur event (when user leaves the field)
+    // Blur event (when user leaves the field with mouse)
     const blurHandler = (event) => {
       console.log('[Case 3] 🔔 Blur event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
 
@@ -411,32 +411,57 @@ class Case3Handler extends BaseHandler {
         return;
       }
 
-      console.log('[Case 3] Duration field blur');
+      console.log('[Case 3] Duration field blur (clicked out)');
       clearTimeout(this.durationDebounceTimer); // Cancel debounce
       this.handleDurationChange(event);
     };
 
-    this.durationField.addEventListener('input', inputHandler);
-    this.durationField.addEventListener('change', changeHandler);
-    this.durationField.addEventListener('blur', blurHandler);
+    // Focusout event (bubbles, more reliable than blur for Dynamics 365)
+    const focusoutHandler = (event) => {
+      console.log('[Case 3] 🔔 Focusout event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
 
-    console.log('[Case 3] ✓ Added 3 event listeners (input, change, blur) to duration field');
+      if (!this.initialized || this.isUpdatingFields) {
+        console.log('[Case 3] Skipping focusout event (not initialized or updating)');
+        return;
+      }
+
+      console.log('[Case 3] Duration field lost focus (focusout)');
+      clearTimeout(this.durationDebounceTimer); // Cancel debounce
+      this.handleDurationChange(event);
+    };
+
+    // Register all event listeners with capture phase for better reliability
+    this.durationField.addEventListener('input', inputHandler, true);
+    this.durationField.addEventListener('change', changeHandler, true);
+    this.durationField.addEventListener('blur', blurHandler, true);
+    this.durationField.addEventListener('focusout', focusoutHandler, true);
+
+    console.log('[Case 3] ✓ Added 4 event listeners (input, change, blur, focusout) to duration field with capture phase');
 
     // Store references for cleanup
     this.eventListeners.push({
       element: this.durationField,
       event: 'input',
-      handler: inputHandler
+      handler: inputHandler,
+      useCapture: true
     });
     this.eventListeners.push({
       element: this.durationField,
       event: 'change',
-      handler: changeHandler
+      handler: changeHandler,
+      useCapture: true
     });
     this.eventListeners.push({
       element: this.durationField,
       event: 'blur',
-      handler: blurHandler
+      handler: blurHandler,
+      useCapture: true
+    });
+    this.eventListeners.push({
+      element: this.durationField,
+      event: 'focusout',
+      handler: focusoutHandler,
+      useCapture: true
     });
 
     console.log('[Case 3] ✓ Event listeners stored for cleanup. Total listeners:', this.eventListeners.length);
@@ -467,18 +492,35 @@ class Case3Handler extends BaseHandler {
       this.handleStartTimeChange(event);
     };
 
-    this.startTimeField.addEventListener('change', changeHandler);
-    this.startTimeField.addEventListener('blur', blurHandler);
+    const focusoutHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] Start time field lost focus (focusout)');
+      clearTimeout(this.startTimeDebounceTimer);
+      this.handleStartTimeChange(event);
+    };
+
+    this.startTimeField.addEventListener('change', changeHandler, true);
+    this.startTimeField.addEventListener('blur', blurHandler, true);
+    this.startTimeField.addEventListener('focusout', focusoutHandler, true);
 
     this.eventListeners.push({
       element: this.startTimeField,
       event: 'change',
-      handler: changeHandler
+      handler: changeHandler,
+      useCapture: true
     });
     this.eventListeners.push({
       element: this.startTimeField,
       event: 'blur',
-      handler: blurHandler
+      handler: blurHandler,
+      useCapture: true
+    });
+    this.eventListeners.push({
+      element: this.startTimeField,
+      event: 'focusout',
+      handler: focusoutHandler,
+      useCapture: true
     });
   }
 
@@ -501,18 +543,40 @@ class Case3Handler extends BaseHandler {
       }
     };
 
-    this.endTimeField.addEventListener('change', changeHandler);
-    this.endTimeField.addEventListener('blur', changeHandler);
+    const focusoutHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] End time lost focus (manual override detection)');
+      this.userManuallySetEndTime = true;
+
+      // Store the manually set end time
+      const endTime = this.getFieldDate(this.endTimeField);
+      if (endTime) {
+        this.lastEndTime = endTime;
+      }
+    };
+
+    this.endTimeField.addEventListener('change', changeHandler, true);
+    this.endTimeField.addEventListener('blur', changeHandler, true);
+    this.endTimeField.addEventListener('focusout', focusoutHandler, true);
 
     this.eventListeners.push({
       element: this.endTimeField,
       event: 'change',
-      handler: changeHandler
+      handler: changeHandler,
+      useCapture: true
     });
     this.eventListeners.push({
       element: this.endTimeField,
       event: 'blur',
-      handler: changeHandler
+      handler: changeHandler,
+      useCapture: true
+    });
+    this.eventListeners.push({
+      element: this.endTimeField,
+      event: 'focusout',
+      handler: focusoutHandler,
+      useCapture: true
     });
   }
 
@@ -886,9 +950,9 @@ class Case3Handler extends BaseHandler {
 
     // Remove all event listeners
     console.log('[Case 3] Removing', this.eventListeners.length, 'event listeners...');
-    this.eventListeners.forEach(({ element, event, handler }) => {
+    this.eventListeners.forEach(({ element, event, handler, useCapture }) => {
       if (element && handler) {
-        element.removeEventListener(event, handler);
+        element.removeEventListener(event, handler, useCapture || false);
       }
     });
     this.eventListeners = [];
