@@ -70,6 +70,14 @@ class Case3Handler extends BaseHandler {
                        (url.includes('pagetype=entityrecord') && url.includes('task')) ||
                        url.includes('etn=activitypointer'); // Activity forms can also be tasks
 
+    console.log('[Case 3] URL check:', {
+      url: url,
+      isTaskPage: isTaskPage,
+      hasTask: url.includes('task'),
+      hasEtc4212: url.includes('etc=4212'),
+      hasActivityPointer: url.includes('activitypointer')
+    });
+
     return isTaskPage;
   }
 
@@ -80,13 +88,28 @@ class Case3Handler extends BaseHandler {
   async init(context) {
     console.log('[Case 3] Initializing...', context.isIframe ? '[IFRAME]' : '[MAIN WINDOW]');
 
-    // Only run on task pages
-    if (!this.isOnTaskPage()) {
-      console.log('[Case 3] Not on a task page - skipping initialization');
-      return;
-    }
+    // Check URL
+    const isTask = this.isOnTaskPage();
 
-    console.log('[Case 3] Confirmed we are on a task page - proceeding with initialization');
+    // Only run on task pages - BUT also check for duration field as fallback
+    if (!isTask) {
+      console.log('[Case 3] Not detected as task page via URL - checking for duration field...');
+
+      // Fallback: check if duration field exists (universal approach)
+      await fieldUtils.sleep(2000);
+      const hasDurationField = document.querySelector('#duration-combobox') ||
+                              document.querySelector('input[aria-label*="Duration"]') ||
+                              document.querySelector('input[aria-label*="Duur"]');
+
+      if (!hasDurationField) {
+        console.log('[Case 3] No duration field found - skipping initialization');
+        return;
+      }
+
+      console.log('[Case 3] Duration field found! Proceeding with initialization despite URL check');
+    } else {
+      console.log('[Case 3] ✓ Confirmed task page via URL - proceeding with initialization');
+    }
 
     // Only run in main window (not in iframes)
     if (context.isIframe) {
@@ -95,10 +118,20 @@ class Case3Handler extends BaseHandler {
     }
 
     try {
-      // Wait for form to load - look for date/time fields
+      // Wait for form to load - look for date/time fields or duration field
       console.log('[Case 3] Waiting for task form to load...');
-      await domObserver.waitForElement('[data-id*="scheduledstart"]', 20000);
-      console.log('[Case 3] Task form loaded successfully');
+
+      // Try to wait for scheduledstart OR duration field
+      try {
+        await Promise.race([
+          domObserver.waitForElement('[data-id*="scheduledstart"]', 5000),
+          domObserver.waitForElement('#duration-combobox', 5000),
+          domObserver.waitForElement('input[aria-label*="Duration"]', 5000)
+        ]);
+        console.log('[Case 3] ✓ Form fields detected');
+      } catch (e) {
+        console.log('[Case 3] Timeout waiting for specific fields, continuing anyway...');
+      }
 
       // Additional wait for Dynamics to finish initialization
       await fieldUtils.sleep(1000);
@@ -159,8 +192,18 @@ class Case3Handler extends BaseHandler {
     this.startTimeField = await this.findStartTimeField();
     this.endTimeField = await this.findEndTimeField();
 
+    console.log('[Case 3] Field detection results:', {
+      durationField: this.durationField ? {
+        id: this.durationField.id,
+        value: this.durationField.value,
+        ariaLabel: this.durationField.getAttribute('aria-label')
+      } : 'NOT FOUND',
+      startTimeField: this.startTimeField ? 'FOUND' : 'NOT FOUND',
+      endTimeField: this.endTimeField ? 'FOUND' : 'NOT FOUND'
+    });
+
     if (!this.durationField) {
-      console.warn('[Case 3] Duration field not found');
+      console.warn('[Case 3] ⚠ Duration field not found - cannot set up monitoring');
       return;
     }
 
@@ -172,20 +215,27 @@ class Case3Handler extends BaseHandler {
 
     // Set up duration field monitoring
     if (this.durationField) {
+      console.log('[Case 3] Setting up duration field listeners...');
       this.setupDurationFieldListeners();
     }
 
     // Set up start time field monitoring (bidirectional sync)
     if (this.startTimeField) {
+      console.log('[Case 3] Setting up start time field listeners...');
       this.setupStartTimeFieldListeners();
+    } else {
+      console.warn('[Case 3] ⚠ Start time field not found - bidirectional sync disabled');
     }
 
     // Set up end time field monitoring (detect manual overrides)
     if (this.endTimeField) {
+      console.log('[Case 3] Setting up end time field listeners...');
       this.setupEndTimeFieldListeners();
+    } else {
+      console.warn('[Case 3] ⚠ End time field not found - manual override detection disabled');
     }
 
-    console.log('[Case 3] ✓ Field monitoring set up successfully');
+    console.log('[Case 3] ✓ Field monitoring set up successfully with', this.eventListeners.length, 'event listeners');
   }
 
   /**
@@ -193,6 +243,9 @@ class Case3Handler extends BaseHandler {
    */
   async findDurationField() {
     const selectors = [
+      // Exact ID match (most specific)
+      '#duration-combobox',
+      'input#duration-combobox',
       // Scheduled duration fields
       'input[data-id*="scheduleddurationminutes"]',
       'input[data-id*="actualdurationminutes"]',
@@ -204,10 +257,14 @@ class Case3Handler extends BaseHandler {
       'input[aria-label*="Dauer"]', // German
       // By control type
       '[data-lp-id*="DurationControl"] input',
-      '[id*="duration-combobox"] input',
-      '[id*="duration"] input[type="text"]'
+      '[id*="duration-combobox"]',
+      '[id*="duration"] input[type="text"]',
+      // Combobox role
+      'input[role="combobox"][aria-label*="Duration"]',
+      'input[role="combobox"][aria-label*="Duur"]'
     ];
 
+    console.log('[Case 3] Searching for duration field with', selectors.length, 'selectors...');
     return this.findFieldBySelectors(selectors, 'Duration');
   }
 
@@ -245,15 +302,29 @@ class Case3Handler extends BaseHandler {
    * Find field by trying multiple selectors
    */
   async findFieldBySelectors(selectors, fieldName) {
+    console.log(`[Case 3] Searching for ${fieldName} field...`);
+
     for (const selector of selectors) {
       const field = document.querySelector(selector);
-      if (field && this.isValidField(field)) {
-        console.log(`[Case 3] Found ${fieldName} field:`, selector);
-        return field;
+      if (field) {
+        console.log(`[Case 3] Found element with selector "${selector}":`, {
+          tagName: field.tagName,
+          id: field.id,
+          type: field.type,
+          ariaLabel: field.getAttribute('aria-label'),
+          value: field.value
+        });
+
+        if (this.isValidField(field)) {
+          console.log(`[Case 3] ✓ ${fieldName} field is valid and will be used`);
+          return field;
+        } else {
+          console.log(`[Case 3] Field found but not valid (hidden/disabled)`);
+        }
       }
     }
 
-    console.warn(`[Case 3] ${fieldName} field not found`);
+    console.warn(`[Case 3] ⚠ ${fieldName} field not found after trying ${selectors.length} selectors`);
     return null;
   }
 
@@ -261,37 +332,68 @@ class Case3Handler extends BaseHandler {
    * Validate if field is usable
    */
   isValidField(field) {
-    if (!field) return false;
+    if (!field) {
+      console.log('[Case 3] Field validation: field is null');
+      return false;
+    }
 
     // Check if field is visible and not disabled
     const style = window.getComputedStyle(field);
     const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
     const isEnabled = !field.disabled && !field.readOnly;
+    const hasParent = field.offsetParent !== null;
 
-    return isVisible && field.offsetParent !== null;
+    const isValid = isVisible && hasParent;
+
+    console.log('[Case 3] Field validation:', {
+      display: style.display,
+      visibility: style.visibility,
+      disabled: field.disabled,
+      readOnly: field.readOnly,
+      hasOffsetParent: hasParent,
+      isVisible: isVisible,
+      isEnabled: isEnabled,
+      finalValidation: isValid
+    });
+
+    return isValid;
   }
 
   /**
    * Set up duration field event listeners
    */
   setupDurationFieldListeners() {
-    console.log('[Case 3] Setting up duration field listeners...');
+    console.log('[Case 3] Setting up duration field listeners on:', {
+      id: this.durationField.id,
+      tagName: this.durationField.tagName,
+      type: this.durationField.type
+    });
 
     // Input event (immediate feedback during typing)
     const inputHandler = (event) => {
-      if (!this.initialized || this.isUpdatingFields) return;
+      console.log('[Case 3] 🔔 Input event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
+
+      if (!this.initialized || this.isUpdatingFields) {
+        console.log('[Case 3] Skipping input event (not initialized or updating)');
+        return;
+      }
 
       // Debounce to avoid excessive processing
       clearTimeout(this.durationDebounceTimer);
       this.durationDebounceTimer = setTimeout(() => {
-        console.log('[Case 3] Duration input detected');
+        console.log('[Case 3] Duration input detected (after debounce)');
         this.handleDurationChange(event);
       }, 500); // Wait 500ms after user stops typing
     };
 
     // Change event (when user finishes editing)
     const changeHandler = (event) => {
-      if (!this.initialized || this.isUpdatingFields) return;
+      console.log('[Case 3] 🔔 Change event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
+
+      if (!this.initialized || this.isUpdatingFields) {
+        console.log('[Case 3] Skipping change event (not initialized or updating)');
+        return;
+      }
 
       console.log('[Case 3] Duration changed');
       clearTimeout(this.durationDebounceTimer); // Cancel debounce
@@ -300,7 +402,12 @@ class Case3Handler extends BaseHandler {
 
     // Blur event (when user leaves the field)
     const blurHandler = (event) => {
-      if (!this.initialized || this.isUpdatingFields) return;
+      console.log('[Case 3] 🔔 Blur event fired! initialized:', this.initialized, 'isUpdating:', this.isUpdatingFields);
+
+      if (!this.initialized || this.isUpdatingFields) {
+        console.log('[Case 3] Skipping blur event (not initialized or updating)');
+        return;
+      }
 
       console.log('[Case 3] Duration field blur');
       clearTimeout(this.durationDebounceTimer); // Cancel debounce
@@ -310,6 +417,8 @@ class Case3Handler extends BaseHandler {
     this.durationField.addEventListener('input', inputHandler);
     this.durationField.addEventListener('change', changeHandler);
     this.durationField.addEventListener('blur', blurHandler);
+
+    console.log('[Case 3] ✓ Added 3 event listeners (input, change, blur) to duration field');
 
     // Store references for cleanup
     this.eventListeners.push({
@@ -327,6 +436,8 @@ class Case3Handler extends BaseHandler {
       event: 'blur',
       handler: blurHandler
     });
+
+    console.log('[Case 3] ✓ Event listeners stored for cleanup. Total listeners:', this.eventListeners.length);
   }
 
   /**
