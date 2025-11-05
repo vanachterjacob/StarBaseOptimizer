@@ -333,8 +333,10 @@ class Case3Handler extends BaseHandler {
   async findTimeFieldNearDate(dateField) {
     console.log('[Case 3] Searching for time field near date field...');
 
-    // Get the parent container
-    const container = dateField.closest('[data-id*="scheduledstart"]') || dateField.parentElement;
+    // Get the parent container (try both scheduledstart and scheduledend)
+    const container = dateField.closest('[data-id*="scheduledstart"]') ||
+                     dateField.closest('[data-id*="scheduledend"]') ||
+                     dateField.parentElement;
     if (!container) return null;
 
     // Look for time input in the same container or nearby
