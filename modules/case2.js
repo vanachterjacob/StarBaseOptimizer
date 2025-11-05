@@ -11,8 +11,10 @@ class Case2Handler extends BaseHandler {
     });
 
     this.durationInputSelector = '#duration-combobox';
-    this.startDateInputSelector = '[data-id*="scheduledstart.fieldControl"][type="text"]';
-    this.endDateInputSelector = '[data-id*="scheduledend.fieldControl"][type="text"]';
+    this.startDateSelector = '[data-id="scheduledstart.fieldControl._datecontrol-date-container"] input';
+    this.startTimeSelector = '[data-id="scheduledstart.fieldControl._timecontrol-datetime-container"] input';
+    this.endDateSelector = '[data-id="scheduledend.fieldControl._datecontrol-date-container"] input';
+    this.endTimeSelector = '[data-id="scheduledend.fieldControl._timecontrol-datetime-container"] input';
     this.initializationDelay = 2000;
     this.lastStartDate = null;
     this.lastDuration = null;
@@ -67,20 +69,15 @@ class Case2Handler extends BaseHandler {
     }
 
     try {
-      // Wait a bit for the page to load before checking if it's a task page
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Instead of checking if we're on a task page first,
+      // try to wait for task-specific elements. If they don't appear,
+      // we're not on a task page and can silently exit.
+      console.log('[Case 2] Waiting for Time Registration section...');
 
-      // Check if we're on a task page
-      if (!this.isOnTaskPage()) {
-        console.log('[Case 2] Not on a task page - skipping initialization');
-        return;
-      }
-
-      console.log('[Case 2] Confirmed we are on a task page - proceeding with initialization');
-
-      // Wait for the time registration section to load
+      // Wait for the time registration section to load (this is task-specific)
+      // Use a reasonable timeout - if it doesn't appear, we're not on a task page
       await domObserver.waitForElement('[data-id="section_TimeRegistration"]', 15000);
-      console.log('[Case 2] Time registration section loaded');
+      console.log('[Case 2] Time registration section found - confirmed task page');
 
       // Wait for duration field to load
       await domObserver.waitForElement(this.durationInputSelector, 10000);
@@ -96,8 +93,15 @@ class Case2Handler extends BaseHandler {
       }, this.initializationDelay);
 
     } catch (error) {
-      console.error('[Case 2] Initialization failed:', error);
-      throw error;
+      // If we can't find the Time Registration section, we're probably not on a task page
+      // This is expected behavior, not an error
+      if (error.message && error.message.includes('not found within')) {
+        console.log('[Case 2] Time Registration section not found - not on a task page, skipping initialization');
+        return; // Silently exit without throwing
+      }
+
+      // For other errors, log them but don't throw to avoid breaking other modules
+      console.error('[Case 2] Initialization error:', error);
     }
   }
 
@@ -229,24 +233,31 @@ class Case2Handler extends BaseHandler {
   }
 
   /**
-   * Get start date from the start date field
+   * Get start date from the start date and time fields
    * @returns {Date|null} Start date or null
    */
   async getStartDate() {
     try {
-      const startDateInput = document.querySelector(this.startDateInputSelector);
-      if (!startDateInput) {
-        console.warn('[Case 2] Start date input not found');
+      const startDateInput = document.querySelector(this.startDateSelector);
+      const startTimeInput = document.querySelector(this.startTimeSelector);
+
+      if (!startDateInput || !startTimeInput) {
+        console.warn('[Case 2] Start date or time input not found');
         return null;
       }
 
-      const dateTimeString = startDateInput.value.trim();
-      if (!dateTimeString) {
-        console.warn('[Case 2] Start date is empty');
+      const dateString = startDateInput.value.trim();
+      const timeString = startTimeInput.value.trim();
+
+      if (!dateString || !timeString) {
+        console.warn('[Case 2] Start date or time is empty');
         return null;
       }
 
-      // Parse the date string (Dynamics 365 format varies by locale)
+      // Combine date and time strings
+      const dateTimeString = `${dateString} ${timeString}`;
+
+      // Parse the combined string
       const date = new Date(dateTimeString);
       if (isNaN(date.getTime())) {
         console.error('[Case 2] Invalid start date format:', dateTimeString);
@@ -276,26 +287,40 @@ class Case2Handler extends BaseHandler {
 
       console.log('[Case 2] Calculated end date:', endDate);
 
-      // Format the date for Dynamics 365
-      const formattedEndDate = this.formatDateForDynamics(endDate);
-      console.log('[Case 2] Formatted end date:', formattedEndDate);
+      // Format the date and time for Dynamics 365
+      const formattedDate = this.formatDateForDynamics(endDate);
+      const formattedTime = this.formatTimeForDynamics(endDate);
 
-      // Set the end date field
-      const endDateInput = document.querySelector(this.endDateInputSelector);
-      if (!endDateInput) {
-        console.error('[Case 2] End date input not found');
+      console.log('[Case 2] Formatted end date:', formattedDate, formattedTime);
+
+      // Get the end date and time input fields
+      const endDateInput = document.querySelector(this.endDateSelector);
+      const endTimeInput = document.querySelector(this.endTimeSelector);
+
+      if (!endDateInput || !endTimeInput) {
+        console.error('[Case 2] End date or time input not found');
         notificationManager.warning('Could not find end date field', 3000);
         return;
       }
 
-      // Update the field
+      // Update the date field
       endDateInput.focus();
-      endDateInput.value = formattedEndDate;
+      endDateInput.value = formattedDate;
       endDateInput.dispatchEvent(new Event('input', { bubbles: true }));
       endDateInput.dispatchEvent(new Event('change', { bubbles: true }));
       endDateInput.dispatchEvent(new Event('blur', { bubbles: true }));
 
-      console.log('[Case 2] ✓ End date updated successfully');
+      // Small delay between updates
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Update the time field
+      endTimeInput.focus();
+      endTimeInput.value = formattedTime;
+      endTimeInput.dispatchEvent(new Event('input', { bubbles: true }));
+      endTimeInput.dispatchEvent(new Event('change', { bubbles: true }));
+      endTimeInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      console.log('[Case 2] ✓ End date and time updated successfully');
       notificationManager.success('End date calculated and updated', 2000);
 
     } catch (error) {
@@ -305,40 +330,49 @@ class Case2Handler extends BaseHandler {
   }
 
   /**
-   * Format date for Dynamics 365 input field
-   * Dynamics 365 expects locale-specific format
+   * Format date for Dynamics 365 date input field (date only, no time)
    * @param {Date} date - Date to format
    * @returns {string} Formatted date string
    */
   formatDateForDynamics(date) {
     // Get the current locale's date format from the existing start date field
-    const startDateInput = document.querySelector(this.startDateInputSelector);
+    const startDateInput = document.querySelector(this.startDateSelector);
     const existingFormat = startDateInput ? startDateInput.value : '';
-
-    // Detect format (e.g., "DD/MM/YYYY HH:mm" vs "MM/DD/YYYY HH:mm" vs "YYYY-MM-DD HH:mm")
-    // For simplicity, we'll use a common format that Dynamics 365 usually accepts
-    // and rely on the browser's locale parsing
 
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
 
     // Try to match the format of the existing start date
     if (existingFormat.includes('-')) {
-      // ISO format: YYYY-MM-DD HH:mm
-      return `${year}-${month}-${day} ${hours}:${minutes}`;
+      // ISO format: YYYY-MM-DD
+      return `${year}-${month}-${day}`;
     } else if (existingFormat.match(/^\d{1,2}\/\d{1,2}\/\d{4}/)) {
-      // European format: DD/MM/YYYY HH:mm (most common in Europe)
-      return `${day}/${month}/${year} ${hours}:${minutes}`;
+      // European format: DD/MM/YYYY (most common in Europe)
+      return `${day}/${month}/${year}`;
     } else if (existingFormat.match(/^\d{4}\/\d{1,2}\/\d{1,2}/)) {
-      // Asian format: YYYY/MM/DD HH:mm
-      return `${year}/${month}/${day} ${hours}:${minutes}`;
+      // Asian format: YYYY/MM/DD
+      return `${year}/${month}/${day}`;
+    } else if (existingFormat.match(/^\d{1,2}-\d{1,2}-\d{4}/)) {
+      // Alternative dash format: DD-MM-YYYY
+      return `${day}-${month}-${year}`;
     } else {
       // Default to European format (Belgium uses DD/MM/YYYY)
-      return `${day}/${month}/${year} ${hours}:${minutes}`;
+      return `${month}/${day}/${year}`;
     }
+  }
+
+  /**
+   * Format time for Dynamics 365 time input field (time only, no date)
+   * @param {Date} date - Date to format (time portion)
+   * @returns {string} Formatted time string
+   */
+  formatTimeForDynamics(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    // Most Dynamics 365 instances use 24-hour format: HH:mm
+    return `${hours}:${minutes}`;
   }
 
   /**
