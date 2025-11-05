@@ -25,12 +25,32 @@ class Case2Handler extends BaseHandler {
   isOnTaskPage() {
     const url = window.location.href;
 
+    // Method 1: Check URL parameters
     // Task pages have etn=task (entity name) or etc=4212 (entity type code for tasks)
-    const isTaskPage = url.includes('etn=task') ||
-                       url.includes('etc=4212') ||
-                       (url.includes('pagetype=entityrecord') && url.includes('task'));
+    const urlCheck = url.includes('etn=task') ||
+                     url.includes('etc=4212') ||
+                     (url.includes('pagetype=entityrecord') && url.includes('task'));
 
-    return isTaskPage;
+    if (urlCheck) {
+      return true;
+    }
+
+    // Method 2: Check DOM for task-specific elements
+    // Task pages have data-lp-id attributes that include ":task" or "|task"
+    const taskElements = document.querySelectorAll('[data-lp-id*=":task"], [data-lp-id*="|task"]');
+    if (taskElements.length > 0) {
+      console.log('[Case 2] Task page detected via DOM elements:', taskElements.length);
+      return true;
+    }
+
+    // Method 3: Check for Time Registration section (specific to tasks)
+    const timeRegSection = document.querySelector('[data-id="section_TimeRegistration"]');
+    if (timeRegSection) {
+      console.log('[Case 2] Task page detected via Time Registration section');
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -40,14 +60,6 @@ class Case2Handler extends BaseHandler {
   async init(context) {
     console.log('[Case 2] Initializing...', context.isIframe ? '[IFRAME]' : '[MAIN WINDOW]');
 
-    // Only run on task pages
-    if (!this.isOnTaskPage()) {
-      console.log('[Case 2] Not on a task page - skipping initialization');
-      return;
-    }
-
-    console.log('[Case 2] Confirmed we are on a task page - proceeding with initialization');
-
     // Only run in main window (not in iframe)
     if (context.isIframe) {
       console.log('[Case 2] Running in iframe - skipping initialization');
@@ -55,6 +67,17 @@ class Case2Handler extends BaseHandler {
     }
 
     try {
+      // Wait a bit for the page to load before checking if it's a task page
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Check if we're on a task page
+      if (!this.isOnTaskPage()) {
+        console.log('[Case 2] Not on a task page - skipping initialization');
+        return;
+      }
+
+      console.log('[Case 2] Confirmed we are on a task page - proceeding with initialization');
+
       // Wait for the time registration section to load
       await domObserver.waitForElement('[data-id="section_TimeRegistration"]', 15000);
       console.log('[Case 2] Time registration section loaded');
