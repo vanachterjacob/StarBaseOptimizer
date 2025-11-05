@@ -165,6 +165,14 @@ class ModuleRegistry {
    * @param {Object} context - Initialization context (needed if enabling)
    */
   async toggleModule(moduleId, enabled, context) {
+    console.log(`[ModuleRegistry] 🔄 toggleModule called:`, {
+      moduleId,
+      enabled,
+      context,
+      moduleExists: this.modules.has(moduleId),
+      allModules: Array.from(this.modules.keys())
+    });
+
     if (enabled) {
       return await this.initializeModule(moduleId, context);
     } else {

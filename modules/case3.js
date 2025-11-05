@@ -20,6 +20,8 @@
  * - Comprehensive error handling
  */
 
+console.log('[Case 3] 🔥 MODULE FILE LOADING - case3.js is being executed!');
+
 class Case3Handler extends BaseHandler {
   constructor() {
     super({
@@ -915,16 +917,25 @@ class Case3Handler extends BaseHandler {
 }
 
 // Self-register the module with the registry
+console.log('[Case 3] 🔥 Attempting to register module...');
+console.log('[Case 3] moduleRegistry exists?', typeof moduleRegistry !== 'undefined');
+
 if (typeof moduleRegistry !== 'undefined') {
+  console.log('[Case 3] Creating Case3Handler instance...');
+  const handlerInstance = new Case3Handler();
+  console.log('[Case 3] Handler instance created:', handlerInstance);
+
+  console.log('[Case 3] Registering with moduleRegistry...');
   moduleRegistry.register({
     id: 'case3',
     name: 'Improve Time Entry',
     description: 'When entering duration in tasks, update end time instead of start time',
-    handler: new Case3Handler(),
+    handler: handlerInstance,
     enabled: true  // Enabled by default
   });
 
-  console.log('[Case 3] Module registered with registry');
+  console.log('[Case 3] ✅ Module successfully registered with registry!');
 } else {
-  console.error('[Case 3] Module registry not available - module not registered');
+  console.error('[Case 3] ❌ Module registry not available - module not registered');
+  console.error('[Case 3] This should never happen if scripts loaded in correct order!');
 }
