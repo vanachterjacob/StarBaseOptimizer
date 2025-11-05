@@ -17,6 +17,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       description: 'Automatically sets "First Response Sent" to "Yes" when sending emails in support cases'
     },
     {
+      id: 'case3',
+      name: 'Improve Time Entry',
+      description: 'When entering duration in tasks, update end time instead of start time'
+    },
+    {
       id: 'imageLightbox',
       name: 'Image Lightbox',
       description: 'Display timeline images in fullscreen lightbox when clicked'
