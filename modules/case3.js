@@ -90,6 +90,13 @@ class Case3Handler extends BaseHandler {
   async init(context) {
     console.log('[Case 3] Initializing...', context.isIframe ? '[IFRAME]' : '[MAIN WINDOW]');
 
+    // CRITICAL: Check iframe status FIRST before any other checks
+    // Only run in main window (not in iframes)
+    if (context.isIframe) {
+      console.log('[Case 3] In iframe - skipping (only runs in main window)');
+      return;
+    }
+
     // Check URL
     const isTask = this.isOnTaskPage();
 
@@ -111,12 +118,6 @@ class Case3Handler extends BaseHandler {
       console.log('[Case 3] Duration field found! Proceeding with initialization despite URL check');
     } else {
       console.log('[Case 3] ✓ Confirmed task page via URL - proceeding with initialization');
-    }
-
-    // Only run in main window (not in iframes)
-    if (context.isIframe) {
-      console.log('[Case 3] In iframe - skipping (only runs in main window)');
-      return;
     }
 
     try {
