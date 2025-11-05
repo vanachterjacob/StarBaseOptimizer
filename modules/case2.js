@@ -18,6 +18,7 @@ class Case2Handler extends BaseHandler {
     this.initializationDelay = 2000;
     this.lastStartDate = null;
     this.lastDuration = null;
+    this.originalStartDate = null; // Store original start date before duration changes
   }
 
   /**
@@ -75,12 +76,12 @@ class Case2Handler extends BaseHandler {
       console.log('[Case 2] Waiting for Time Registration section...');
 
       // Wait for the time registration section to load (this is task-specific)
-      // Use a reasonable timeout - if it doesn't appear, we're not on a task page
-      await domObserver.waitForElement('[data-id="section_TimeRegistration"]', 15000);
+      // Use a longer timeout to account for slow page loads
+      await domObserver.waitForElement('[data-id="section_TimeRegistration"]', 30000);
       console.log('[Case 2] Time registration section found - confirmed task page');
 
       // Wait for duration field to load
-      await domObserver.waitForElement(this.durationInputSelector, 10000);
+      await domObserver.waitForElement(this.durationInputSelector, 15000);
       console.log('[Case 2] Duration field found');
 
       // Setup duration field monitoring
@@ -117,6 +118,14 @@ class Case2Handler extends BaseHandler {
       return;
     }
 
+    // Capture original start date when user focuses on duration field
+    // This happens BEFORE they make changes
+    durationInput.addEventListener('focus', async () => {
+      if (!this.initialized) return;
+      this.originalStartDate = await this.getStartDate();
+      console.log('[Case 2] Captured original start date:', this.originalStartDate);
+    });
+
     // Monitor input changes
     durationInput.addEventListener('input', () => {
       if (!this.initialized) return;
@@ -150,34 +159,51 @@ class Case2Handler extends BaseHandler {
     await this.executeWithCooldown(async () => {
       console.log('[Case 2] Duration field changed - processing...');
 
-      // Get current values
+      // Get duration
       const duration = await this.getDuration();
-      const startDate = await this.getStartDate();
 
-      if (!duration || !startDate) {
-        console.log('[Case 2] Missing duration or start date - skipping', { duration, startDate });
+      if (!duration) {
+        console.log('[Case 2] Missing duration - skipping');
         return;
       }
 
-      // Check if start date or duration actually changed
-      if (this.lastStartDate === startDate && this.lastDuration === duration) {
-        console.log('[Case 2] No change detected - skipping');
+      // Use the original start date that was captured on focus
+      // If not captured yet, read it now
+      let startDate = this.originalStartDate;
+      if (!startDate) {
+        startDate = await this.getStartDate();
+        this.originalStartDate = startDate;
+      }
+
+      if (!startDate) {
+        console.log('[Case 2] Missing start date - skipping');
+        return;
+      }
+
+      // Check if duration actually changed
+      if (this.lastDuration === duration) {
+        console.log('[Case 2] No duration change detected - skipping');
         return;
       }
 
       console.log('[Case 2] Processing duration change:', {
-        startDate,
+        originalStartDate: startDate,
         duration,
-        lastStartDate: this.lastStartDate,
         lastDuration: this.lastDuration
       });
 
-      // Store current values
-      this.lastStartDate = startDate;
+      // Store current duration
       this.lastDuration = duration;
 
-      // Calculate and update end date
+      // Wait a bit to let Dynamics 365's built-in logic run first
+      // This is important because Dynamics modifies the start date
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Now update the end date based on original start + duration
       await this.updateEndDate(startDate, duration);
+
+      // Restore the original start date (because Dynamics may have modified it)
+      await this.restoreStartDate(startDate);
     });
   }
 
@@ -326,6 +352,67 @@ class Case2Handler extends BaseHandler {
     } catch (error) {
       console.error('[Case 2] Error updating end date:', error);
       notificationManager.error('Failed to update end date', 3000);
+    }
+  }
+
+  /**
+   * Restore the original start date (prevents Dynamics from modifying it)
+   * @param {Date} originalStartDate - The original start date to restore
+   */
+  async restoreStartDate(originalStartDate) {
+    try {
+      console.log('[Case 2] Restoring original start date:', originalStartDate);
+
+      // Format the date and time
+      const formattedDate = this.formatDateForDynamics(originalStartDate);
+      const formattedTime = this.formatTimeForDynamics(originalStartDate);
+
+      console.log('[Case 2] Formatted start date:', formattedDate, formattedTime);
+
+      // Get the start date and time input fields
+      const startDateInput = document.querySelector(this.startDateSelector);
+      const startTimeInput = document.querySelector(this.startTimeSelector);
+
+      if (!startDateInput || !startTimeInput) {
+        console.error('[Case 2] Start date or time input not found');
+        return;
+      }
+
+      // Check if start date was modified by Dynamics
+      const currentStartDate = `${startDateInput.value} ${startTimeInput.value}`;
+      const expectedStartDate = `${formattedDate} ${formattedTime}`;
+
+      if (currentStartDate === expectedStartDate) {
+        console.log('[Case 2] Start date unchanged - no need to restore');
+        return;
+      }
+
+      console.log('[Case 2] Start date was modified by Dynamics, restoring...', {
+        current: currentStartDate,
+        expected: expectedStartDate
+      });
+
+      // Update the date field
+      startDateInput.focus();
+      startDateInput.value = formattedDate;
+      startDateInput.dispatchEvent(new Event('input', { bubbles: true }));
+      startDateInput.dispatchEvent(new Event('change', { bubbles: true }));
+      startDateInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      // Small delay between updates
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Update the time field
+      startTimeInput.focus();
+      startTimeInput.value = formattedTime;
+      startTimeInput.dispatchEvent(new Event('input', { bubbles: true }));
+      startTimeInput.dispatchEvent(new Event('change', { bubbles: true }));
+      startTimeInput.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      console.log('[Case 2] ✓ Start date restored successfully');
+
+    } catch (error) {
+      console.error('[Case 2] Error restoring start date:', error);
     }
   }
 
