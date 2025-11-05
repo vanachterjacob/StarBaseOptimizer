@@ -17,6 +17,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       description: 'Automatically sets "First Response Sent" to "Yes" when sending emails in support cases'
     },
     {
+      id: 'case2',
+      name: 'Fix Time Registration Duration',
+      description: 'When entering duration, updates end date forward instead of start date backward'
+    },
+    {
       id: 'imageLightbox',
       name: 'Image Lightbox',
       description: 'Display timeline images in fullscreen lightbox when clicked'
