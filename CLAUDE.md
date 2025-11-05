@@ -8,6 +8,7 @@ StarBase Optimizer is a Chrome extension (Manifest V3) that automates workflows 
 
 **Current Features:**
 - Case 1: Automatically sets "First Response Sent" field to "Yes" when sending emails in support cases
+- Case 3: Improves time entry for tasks - updates end time instead of start time when duration is entered
 
 ## Development Environment
 

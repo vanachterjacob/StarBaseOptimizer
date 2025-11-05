@@ -24,6 +24,7 @@
         "utils/notifications.js",
         "utils/module-registry.js",
         "modules/case1.js",
+        "modules/case3.js",
         "modules/image-lightbox.js",
         "content-script.js"
       ],
