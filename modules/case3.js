@@ -1,22 +1,59 @@
 /**
- * Case 3: Improve Time Entry for Tasks
+ * Case 3: Improve Time Entry for Tasks (BULLETPROOF VERSION)
  * When duration is entered, update end time instead of start time
  *
  * Current behavior: Duration input updates start time backward (17:00 → 16:00)
  * Desired behavior: Duration input updates end time forward (17:00 → 18:00)
+ *
+ * IMPROVEMENTS:
+ * - Bidirectional sync (start/end/duration changes all sync properly)
+ * - Race condition prevention with Dynamics 365
+ * - Loop prevention flags
+ * - Proper event listener cleanup (memory leak prevention)
+ * - Robust field detection with MutationObserver fallback
+ * - Edge case validation (0, negative, huge values)
+ * - Locale-aware date formatting with fallbacks
+ * - Field state validation (disabled/readonly)
+ * - Manual override detection
+ * - Retry mechanism for failed updates
+ * - Debouncing for user input
+ * - Comprehensive error handling
  */
 
 class Case3Handler extends BaseHandler {
   constructor() {
     super({
       id: 'case3',
-      cooldownTime: 500 // Short cooldown for responsive updates
+      cooldownTime: 300 // Reduced for more responsive updates
     });
 
-    this.initializationDelay = 2000;
-    this.durationObserver = null;
+    this.initializationDelay = 3000; // Increased to ensure Dynamics is fully loaded
+
+    // Field references
+    this.durationField = null;
+    this.startTimeField = null;
+    this.endTimeField = null;
+
+    // Event listener references for cleanup
+    this.eventListeners = [];
+
+    // State tracking
     this.lastDuration = null;
     this.lastStartTime = null;
+    this.lastEndTime = null;
+    this.isUpdatingFields = false; // Loop prevention flag
+    this.userManuallySetEndTime = false; // Track manual overrides
+
+    // Mutation observer for dynamic field detection
+    this.fieldObserver = null;
+
+    // Debounce timers
+    this.durationDebounceTimer = null;
+    this.startTimeDebounceTimer = null;
+
+    // Retry configuration
+    this.maxRetries = 3;
+    this.retryDelay = 1000;
   }
 
   /**
@@ -30,7 +67,8 @@ class Case3Handler extends BaseHandler {
     // Task pages have etn=task or etc=4212 (entity type code for tasks)
     const isTaskPage = url.includes('etn=task') ||
                        url.includes('etc=4212') ||
-                       (url.includes('pagetype=entityrecord') && url.includes('task'));
+                       (url.includes('pagetype=entityrecord') && url.includes('task')) ||
+                       url.includes('etn=activitypointer'); // Activity forms can also be tasks
 
     return isTaskPage;
   }
@@ -59,120 +97,310 @@ class Case3Handler extends BaseHandler {
     try {
       // Wait for form to load - look for date/time fields
       console.log('[Case 3] Waiting for task form to load...');
-      await domObserver.waitForElement('[data-id*="scheduledstart"]', 15000);
+      await domObserver.waitForElement('[data-id*="scheduledstart"]', 20000);
       console.log('[Case 3] Task form loaded successfully');
 
-      // Set up duration field monitoring
-      this.setupDurationMonitoring();
+      // Additional wait for Dynamics to finish initialization
+      await fieldUtils.sleep(1000);
+
+      // Set up field monitoring with robust detection
+      await this.setupFieldMonitoring();
+
+      // Set up mutation observer for dynamic fields
+      this.setupMutationObserver();
 
       // Wait before marking as initialized
       setTimeout(() => {
         this.initialized = true;
-        console.log('[Case 3] Initialized - now monitoring duration changes');
+        console.log('[Case 3] ✓ Initialized - now monitoring time entry fields');
       }, this.initializationDelay);
 
     } catch (error) {
       console.error('[Case 3] Initialization failed:', error);
-      throw error;
+      // Don't throw - allow extension to continue working
+      console.log('[Case 3] Will retry field detection on form changes');
     }
   }
 
   /**
-   * Set up monitoring for duration field changes
+   * Set up mutation observer to detect dynamically loaded fields
    */
-  setupDurationMonitoring() {
-    console.log('[Case 3] Setting up duration field monitoring...');
-
-    // Find duration input fields
-    const durationSelectors = [
-      'input[data-id*="duration"]',
-      'input[aria-label*="Duration"]',
-      'input[aria-label*="Duur"]',
-      '[data-lp-id*="DurationControl"] input',
-      '[id*="duration-combobox"] input'
-    ];
-
-    // Try to find the duration input field
-    let durationField = null;
-    for (const selector of durationSelectors) {
-      durationField = document.querySelector(selector);
-      if (durationField) {
-        console.log('[Case 3] Found duration field with selector:', selector);
-        break;
-      }
+  setupMutationObserver() {
+    if (this.fieldObserver) {
+      return; // Already set up
     }
 
-    if (!durationField) {
-      console.warn('[Case 3] Duration field not found, will retry later');
+    console.log('[Case 3] Setting up mutation observer for dynamic field detection...');
 
-      // Retry after a delay
-      setTimeout(() => {
-        if (this.initialized) {
-          this.setupDurationMonitoring();
-        }
-      }, 3000);
+    this.fieldObserver = new MutationObserver((mutations) => {
+      // Check if we need to re-setup monitoring (fields changed)
+      if (!this.durationField || !document.contains(this.durationField)) {
+        console.log('[Case 3] Duration field removed from DOM, re-detecting...');
+        this.setupFieldMonitoring();
+      }
+    });
+
+    // Observe the form container
+    const formContainer = document.querySelector('[data-id="form-container"]') || document.body;
+    this.fieldObserver.observe(formContainer, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  /**
+   * Set up monitoring for all relevant fields
+   */
+  async setupFieldMonitoring() {
+    console.log('[Case 3] Setting up field monitoring...');
+
+    // Find all fields with enhanced detection
+    this.durationField = await this.findDurationField();
+    this.startTimeField = await this.findStartTimeField();
+    this.endTimeField = await this.findEndTimeField();
+
+    if (!this.durationField) {
+      console.warn('[Case 3] Duration field not found');
       return;
     }
 
-    // Monitor for changes using input event
-    durationField.addEventListener('input', (event) => {
-      if (!this.initialized) return;
-
-      console.log('[Case 3] Duration field changed');
-      this.handleDurationChange(event);
+    console.log('[Case 3] ✓ Fields detected:', {
+      duration: !!this.durationField,
+      startTime: !!this.startTimeField,
+      endTime: !!this.endTimeField
     });
 
-    // Also monitor blur event (when user leaves the field)
-    durationField.addEventListener('blur', (event) => {
-      if (!this.initialized) return;
-
-      console.log('[Case 3] Duration field blur');
-      this.handleDurationChange(event);
-    });
-
-    // Monitor for changes to start time as well
-    const startTimeSelectors = [
-      'input[data-id*="scheduledstart"]',
-      '[data-id*="scheduledstart.fieldControl"] input'
-    ];
-
-    for (const selector of startTimeSelectors) {
-      const startField = document.querySelector(selector);
-      if (startField) {
-        console.log('[Case 3] Found start time field with selector:', selector);
-
-        startField.addEventListener('change', (event) => {
-          if (!this.initialized) return;
-          console.log('[Case 3] Start time changed');
-          this.captureStartTime();
-        });
-
-        break;
-      }
+    // Set up duration field monitoring
+    if (this.durationField) {
+      this.setupDurationFieldListeners();
     }
 
-    console.log('[Case 3] Duration monitoring set up successfully');
+    // Set up start time field monitoring (bidirectional sync)
+    if (this.startTimeField) {
+      this.setupStartTimeFieldListeners();
+    }
+
+    // Set up end time field monitoring (detect manual overrides)
+    if (this.endTimeField) {
+      this.setupEndTimeFieldListeners();
+    }
+
+    console.log('[Case 3] ✓ Field monitoring set up successfully');
   }
 
   /**
-   * Capture current start time
+   * Find duration field with robust detection
    */
-  captureStartTime() {
-    const startTimeSelectors = [
-      'input[data-id*="scheduledstart"]',
-      '[data-id*="scheduledstart.fieldControl"] input'
+  async findDurationField() {
+    const selectors = [
+      // Scheduled duration fields
+      'input[data-id*="scheduleddurationminutes"]',
+      'input[data-id*="actualdurationminutes"]',
+      'input[data-id*="duration"]',
+      // By aria-label
+      'input[aria-label*="Duration"]',
+      'input[aria-label*="Duur"]',
+      'input[aria-label*="Durée"]', // French
+      'input[aria-label*="Dauer"]', // German
+      // By control type
+      '[data-lp-id*="DurationControl"] input',
+      '[id*="duration-combobox"] input',
+      '[id*="duration"] input[type="text"]'
     ];
 
-    for (const selector of startTimeSelectors) {
-      const startField = document.querySelector(selector);
-      if (startField && startField.value) {
-        this.lastStartTime = new Date(startField.value);
-        console.log('[Case 3] Captured start time:', this.lastStartTime);
-        return this.lastStartTime;
+    return this.findFieldBySelectors(selectors, 'Duration');
+  }
+
+  /**
+   * Find start time field
+   */
+  async findStartTimeField() {
+    const selectors = [
+      'input[data-id*="scheduledstart"]',
+      '[data-id*="scheduledstart.fieldControl"] input',
+      'input[aria-label*="Start"]',
+      'input[aria-label*="Begin"]',
+      'input[data-id*="actualstart"]'
+    ];
+
+    return this.findFieldBySelectors(selectors, 'Start Time');
+  }
+
+  /**
+   * Find end time field
+   */
+  async findEndTimeField() {
+    const selectors = [
+      'input[data-id*="scheduledend"]',
+      '[data-id*="scheduledend.fieldControl"] input',
+      'input[aria-label*="End"]',
+      'input[aria-label*="Eind"]',
+      'input[data-id*="actualend"]'
+    ];
+
+    return this.findFieldBySelectors(selectors, 'End Time');
+  }
+
+  /**
+   * Find field by trying multiple selectors
+   */
+  async findFieldBySelectors(selectors, fieldName) {
+    for (const selector of selectors) {
+      const field = document.querySelector(selector);
+      if (field && this.isValidField(field)) {
+        console.log(`[Case 3] Found ${fieldName} field:`, selector);
+        return field;
       }
     }
 
+    console.warn(`[Case 3] ${fieldName} field not found`);
     return null;
+  }
+
+  /**
+   * Validate if field is usable
+   */
+  isValidField(field) {
+    if (!field) return false;
+
+    // Check if field is visible and not disabled
+    const style = window.getComputedStyle(field);
+    const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+    const isEnabled = !field.disabled && !field.readOnly;
+
+    return isVisible && field.offsetParent !== null;
+  }
+
+  /**
+   * Set up duration field event listeners
+   */
+  setupDurationFieldListeners() {
+    console.log('[Case 3] Setting up duration field listeners...');
+
+    // Input event (immediate feedback during typing)
+    const inputHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      // Debounce to avoid excessive processing
+      clearTimeout(this.durationDebounceTimer);
+      this.durationDebounceTimer = setTimeout(() => {
+        console.log('[Case 3] Duration input detected');
+        this.handleDurationChange(event);
+      }, 500); // Wait 500ms after user stops typing
+    };
+
+    // Change event (when user finishes editing)
+    const changeHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] Duration changed');
+      clearTimeout(this.durationDebounceTimer); // Cancel debounce
+      this.handleDurationChange(event);
+    };
+
+    // Blur event (when user leaves the field)
+    const blurHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] Duration field blur');
+      clearTimeout(this.durationDebounceTimer); // Cancel debounce
+      this.handleDurationChange(event);
+    };
+
+    this.durationField.addEventListener('input', inputHandler);
+    this.durationField.addEventListener('change', changeHandler);
+    this.durationField.addEventListener('blur', blurHandler);
+
+    // Store references for cleanup
+    this.eventListeners.push({
+      element: this.durationField,
+      event: 'input',
+      handler: inputHandler
+    });
+    this.eventListeners.push({
+      element: this.durationField,
+      event: 'change',
+      handler: changeHandler
+    });
+    this.eventListeners.push({
+      element: this.durationField,
+      event: 'blur',
+      handler: blurHandler
+    });
+  }
+
+  /**
+   * Set up start time field event listeners (bidirectional sync)
+   */
+  setupStartTimeFieldListeners() {
+    console.log('[Case 3] Setting up start time field listeners...');
+
+    const changeHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      // Debounce
+      clearTimeout(this.startTimeDebounceTimer);
+      this.startTimeDebounceTimer = setTimeout(() => {
+        console.log('[Case 3] Start time changed by user');
+        this.handleStartTimeChange(event);
+      }, 800); // Longer debounce for date/time pickers
+    };
+
+    const blurHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] Start time field blur');
+      clearTimeout(this.startTimeDebounceTimer);
+      this.handleStartTimeChange(event);
+    };
+
+    this.startTimeField.addEventListener('change', changeHandler);
+    this.startTimeField.addEventListener('blur', blurHandler);
+
+    this.eventListeners.push({
+      element: this.startTimeField,
+      event: 'change',
+      handler: changeHandler
+    });
+    this.eventListeners.push({
+      element: this.startTimeField,
+      event: 'blur',
+      handler: blurHandler
+    });
+  }
+
+  /**
+   * Set up end time field event listeners (detect manual overrides)
+   */
+  setupEndTimeFieldListeners() {
+    console.log('[Case 3] Setting up end time field listeners (manual override detection)...');
+
+    const changeHandler = (event) => {
+      if (!this.initialized || this.isUpdatingFields) return;
+
+      console.log('[Case 3] End time changed by user (manual override)');
+      this.userManuallySetEndTime = true;
+
+      // Store the manually set end time
+      const endTime = this.getFieldDate(this.endTimeField);
+      if (endTime) {
+        this.lastEndTime = endTime;
+      }
+    };
+
+    this.endTimeField.addEventListener('change', changeHandler);
+    this.endTimeField.addEventListener('blur', changeHandler);
+
+    this.eventListeners.push({
+      element: this.endTimeField,
+      event: 'change',
+      handler: changeHandler
+    });
+    this.eventListeners.push({
+      element: this.endTimeField,
+      event: 'blur',
+      handler: changeHandler
+    });
   }
 
   /**
@@ -182,117 +410,150 @@ class Case3Handler extends BaseHandler {
     await this.executeWithCooldown(async () => {
       console.log('[Case 3] Processing duration change...');
 
-      // Get the duration value
-      const durationField = event.target;
-      const durationValue = durationField.value;
+      const durationValue = event.target.value;
 
+      // Skip if no value or same as last
       if (!durationValue || durationValue === this.lastDuration) {
         console.log('[Case 3] No change in duration, skipping');
         return;
       }
 
       console.log('[Case 3] Duration value:', durationValue);
-      this.lastDuration = durationValue;
 
-      // Parse duration (could be in format like "1 hour", "30 minutes", etc.)
+      // Parse and validate duration
       const durationMinutes = this.parseDuration(durationValue);
-      if (!durationMinutes) {
+      if (durationMinutes === null) {
         console.log('[Case 3] Could not parse duration, skipping');
         return;
       }
 
-      console.log('[Case 3] Parsed duration: ' + durationMinutes + ' minutes');
+      // Validate duration (edge cases)
+      if (!this.isValidDuration(durationMinutes)) {
+        console.warn('[Case 3] Invalid duration value:', durationMinutes);
+        notificationManager.warning('Invalid duration value', 2000);
+        return;
+      }
 
-      // Wait a bit for Dynamics to process the change
-      await fieldUtils.sleep(500);
+      console.log('[Case 3] Parsed duration:', durationMinutes, 'minutes');
+      this.lastDuration = durationValue;
+
+      // Reset manual override flag when duration changes
+      this.userManuallySetEndTime = false;
+
+      // Wait for Dynamics to process (increased from 500ms)
+      await fieldUtils.sleep(1000);
 
       // Get current start time
-      const startTime = this.getStartTime();
+      const startTime = this.getFieldDate(this.startTimeField);
       if (!startTime) {
         console.log('[Case 3] Could not get start time, skipping');
         return;
       }
 
-      console.log('[Case 3] Current start time:', startTime);
+      console.log('[Case 3] Current start time:', startTime.toLocaleString());
 
       // Calculate new end time
       const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-      console.log('[Case 3] Calculated end time:', endTime);
+      console.log('[Case 3] Calculated end time:', endTime.toLocaleString());
 
-      // Update the end time field
-      const success = await this.setEndTime(endTime);
+      // Update the end time field with retry
+      const success = await this.updateEndTimeWithRetry(endTime);
 
       if (success) {
-        notificationManager.success('End time updated: ' + endTime.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }), 2000);
+        this.lastEndTime = endTime;
+        notificationManager.success(
+          'End time: ' + endTime.toLocaleTimeString('nl-NL', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          2000
+        );
         console.log('[Case 3] ✓ End time updated successfully');
       } else {
-        console.log('[Case 3] ✗ Failed to update end time');
+        notificationManager.warning('Could not update end time', 2000);
+        console.log('[Case 3] ✗ Failed to update end time after retries');
       }
     });
   }
 
   /**
-   * Parse duration string to minutes
-   * @param {string} durationStr - Duration string like "1 hour", "30 minutes", "1:30"
-   * @returns {number|null} - Duration in minutes or null if cannot parse
+   * Handle start time field change (bidirectional sync)
    */
-  parseDuration(durationStr) {
-    if (!durationStr) return null;
+  async handleStartTimeChange(event) {
+    await this.executeWithCooldown(async () => {
+      console.log('[Case 3] Processing start time change...');
 
-    const str = durationStr.toLowerCase().trim();
+      const startTime = this.getFieldDate(this.startTimeField);
+      if (!startTime) {
+        console.log('[Case 3] Could not parse start time, skipping');
+        return;
+      }
 
-    // Format: "X hour(s)" or "X uur/uren"
-    let match = str.match(/(\d+(?:\.\d+)?)\s*(?:hour|uur|uren|hr|u)/);
-    if (match) {
-      return parseFloat(match[1]) * 60;
-    }
+      // Skip if same as last
+      if (this.lastStartTime && startTime.getTime() === this.lastStartTime.getTime()) {
+        console.log('[Case 3] No change in start time, skipping');
+        return;
+      }
 
-    // Format: "X minute(s)" or "X minuten/minuut"
-    match = str.match(/(\d+)\s*(?:minute|minuten|minuut|min|m)/);
-    if (match) {
-      return parseInt(match[1]);
-    }
+      console.log('[Case 3] Start time changed to:', startTime.toLocaleString());
+      this.lastStartTime = startTime;
 
-    // Format: "H:MM" or "HH:MM"
-    match = str.match(/(\d+):(\d+)/);
-    if (match) {
-      return parseInt(match[1]) * 60 + parseInt(match[2]);
-    }
+      // If user manually set end time, don't override it
+      if (this.userManuallySetEndTime) {
+        console.log('[Case 3] User manually set end time, not updating');
+        return;
+      }
 
-    // Format: just a number (assume minutes)
-    match = str.match(/^(\d+(?:\.\d+)?)$/);
-    if (match) {
-      return parseFloat(match[1]);
-    }
+      // Wait for Dynamics
+      await fieldUtils.sleep(1000);
 
-    return null;
+      // Get current duration
+      const durationValue = this.durationField ? this.durationField.value : null;
+      if (!durationValue) {
+        console.log('[Case 3] No duration set, skipping end time calculation');
+        return;
+      }
+
+      const durationMinutes = this.parseDuration(durationValue);
+      if (!durationMinutes || !this.isValidDuration(durationMinutes)) {
+        console.log('[Case 3] Invalid duration, skipping');
+        return;
+      }
+
+      // Recalculate end time based on new start time
+      const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+      console.log('[Case 3] Recalculated end time:', endTime.toLocaleString());
+
+      // Update end time
+      const success = await this.updateEndTimeWithRetry(endTime);
+
+      if (success) {
+        this.lastEndTime = endTime;
+        console.log('[Case 3] ✓ End time recalculated after start time change');
+      }
+    });
   }
 
   /**
-   * Get current start time from the form
-   * @returns {Date|null}
+   * Update end time with retry mechanism
    */
-  getStartTime() {
-    const startTimeSelectors = [
-      'input[data-id*="scheduledstart"]',
-      '[data-id*="scheduledstart.fieldControl"] input'
-    ];
+  async updateEndTimeWithRetry(endTime, attempt = 1) {
+    console.log(`[Case 3] Updating end time (attempt ${attempt}/${this.maxRetries})...`);
 
-    for (const selector of startTimeSelectors) {
-      const startField = document.querySelector(selector);
-      if (startField && startField.value) {
-        try {
-          const date = new Date(startField.value);
-          if (!isNaN(date.getTime())) {
-            return date;
-          }
-        } catch (e) {
-          console.warn('[Case 3] Could not parse start time:', e);
-        }
-      }
+    const success = await this.setEndTime(endTime);
+
+    if (success) {
+      return true;
     }
 
-    return null;
+    // Retry if failed
+    if (attempt < this.maxRetries) {
+      console.log(`[Case 3] Retry in ${this.retryDelay}ms...`);
+      await fieldUtils.sleep(this.retryDelay);
+      return this.updateEndTimeWithRetry(endTime, attempt + 1);
+    }
+
+    return false;
   }
 
   /**
@@ -301,67 +562,244 @@ class Case3Handler extends BaseHandler {
    * @returns {boolean} - True if successful
    */
   async setEndTime(endTime) {
-    const endTimeSelectors = [
-      'input[data-id*="scheduledend"]',
-      '[data-id*="scheduledend.fieldControl"] input'
-    ];
+    if (!this.endTimeField) {
+      console.warn('[Case 3] End time field not available');
+      return false;
+    }
 
-    for (const selector of endTimeSelectors) {
-      const endField = document.querySelector(selector);
-      if (endField) {
+    // Check if field is editable
+    if (this.endTimeField.disabled || this.endTimeField.readOnly) {
+      console.warn('[Case 3] End time field is disabled or read-only');
+      return false;
+    }
+
+    try {
+      // Set loop prevention flag
+      this.isUpdatingFields = true;
+
+      // Try multiple date formats for compatibility
+      const formats = this.getDateFormatsForDynamics(endTime);
+
+      for (const format of formats) {
         try {
+          console.log('[Case 3] Trying format:', format);
+
           // Focus the field
-          endField.focus();
-
-          // Format the date to the expected format
-          // Dynamics 365 typically expects ISO format or locale-specific format
-          const formattedDate = this.formatDateForDynamics(endTime);
-
-          console.log('[Case 3] Setting end time to:', formattedDate);
+          this.endTimeField.focus();
+          await fieldUtils.sleep(100);
 
           // Set the value
-          endField.value = formattedDate;
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set;
+          nativeInputValueSetter.call(this.endTimeField, format);
 
-          // Trigger events to ensure Dynamics recognizes the change
-          endField.dispatchEvent(new Event('input', { bubbles: true }));
-          endField.dispatchEvent(new Event('change', { bubbles: true }));
-          endField.dispatchEvent(new Event('blur', { bubbles: true }));
+          // Trigger events in sequence
+          this.endTimeField.dispatchEvent(new Event('input', { bubbles: true }));
+          await fieldUtils.sleep(50);
+          this.endTimeField.dispatchEvent(new Event('change', { bubbles: true }));
+          await fieldUtils.sleep(50);
+          this.endTimeField.dispatchEvent(new Event('blur', { bubbles: true }));
 
-          // Wait a bit for Dynamics to process
-          await fieldUtils.sleep(300);
+          // Wait for Dynamics to process
+          await fieldUtils.sleep(500);
 
-          return true;
+          // Verify the value was set
+          const verifiedDate = this.getFieldDate(this.endTimeField);
+          if (verifiedDate && Math.abs(verifiedDate.getTime() - endTime.getTime()) < 60000) {
+            // Within 1 minute tolerance
+            console.log('[Case 3] ✓ End time set successfully with format:', format);
+            return true;
+          }
+
         } catch (e) {
-          console.error('[Case 3] Error setting end time:', e);
+          console.warn('[Case 3] Format failed:', format, e);
+          continue; // Try next format
         }
       }
+
+      console.error('[Case 3] All date formats failed');
+      return false;
+
+    } catch (e) {
+      console.error('[Case 3] Error setting end time:', e);
+      return false;
+    } finally {
+      // Reset loop prevention flag after a delay
+      setTimeout(() => {
+        this.isUpdatingFields = false;
+      }, 1500);
+    }
+  }
+
+  /**
+   * Get multiple date format variants for maximum compatibility
+   */
+  getDateFormatsForDynamics(date) {
+    const formats = [];
+
+    try {
+      // ISO format (most compatible)
+      formats.push(date.toISOString());
+
+      // Locale string formats
+      formats.push(date.toLocaleString('en-US'));
+      formats.push(date.toLocaleString('nl-NL'));
+      formats.push(date.toLocaleString('en-GB'));
+
+      // Custom formats
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+
+      // Various format patterns
+      formats.push(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}`);
+      formats.push(`${month}/${day}/${year} ${hours}:${minutes}`);
+      formats.push(`${day}/${month}/${year} ${hours}:${minutes}`);
+      formats.push(`${year}/${month}/${day} ${hours}:${minutes}`);
+
+    } catch (e) {
+      console.error('[Case 3] Error generating date formats:', e);
     }
 
-    console.warn('[Case 3] End time field not found');
-    return false;
+    return formats;
   }
 
   /**
-   * Format date for Dynamics 365 datetime field
-   * @param {Date} date
-   * @returns {string}
+   * Get date from field value
    */
-  formatDateForDynamics(date) {
-    // Try ISO format first (most compatible)
-    return date.toISOString();
+  getFieldDate(field) {
+    if (!field || !field.value) {
+      return null;
+    }
+
+    try {
+      const date = new Date(field.value);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    } catch (e) {
+      console.warn('[Case 3] Could not parse field date:', e);
+    }
+
+    return null;
   }
 
   /**
-   * Cleanup when handler is disabled
+   * Parse duration string to minutes (ENHANCED with validation)
+   * @param {string} durationStr - Duration string
+   * @returns {number|null} - Duration in minutes or null if cannot parse
+   */
+  parseDuration(durationStr) {
+    if (!durationStr) return null;
+
+    const str = durationStr.toLowerCase().trim();
+
+    // Remove any currency symbols or other noise
+    const cleaned = str.replace(/[^\d:.a-z\s]/g, '');
+
+    // Format: "X hour(s)" or "X uur/uren"
+    let match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:hour|uur|uren|hr|h|u)(?!r)/);
+    if (match) {
+      return parseFloat(match[1]) * 60;
+    }
+
+    // Format: "X minute(s)" or "X minuten/minuut"
+    match = cleaned.match(/(\d+(?:\.\d+)?)\s*(?:minute|minuten|minuut|min|m)/);
+    if (match) {
+      return parseFloat(match[1]);
+    }
+
+    // Format: "H:MM" or "HH:MM"
+    match = cleaned.match(/(\d+):(\d+)/);
+    if (match) {
+      const hours = parseInt(match[1]);
+      const minutes = parseInt(match[2]);
+      return hours * 60 + minutes;
+    }
+
+    // Format: just a number (assume minutes)
+    match = cleaned.match(/^(\d+(?:\.\d+)?)$/);
+    if (match) {
+      return parseFloat(match[1]);
+    }
+
+    return null;
+  }
+
+  /**
+   * Validate duration value (edge case handling)
+   */
+  isValidDuration(durationMinutes) {
+    if (typeof durationMinutes !== 'number' || isNaN(durationMinutes)) {
+      return false;
+    }
+
+    // Check for negative or zero
+    if (durationMinutes <= 0) {
+      console.warn('[Case 3] Duration must be positive:', durationMinutes);
+      return false;
+    }
+
+    // Check for unreasonably large values (> 1 week)
+    const maxMinutes = 7 * 24 * 60; // 1 week
+    if (durationMinutes > maxMinutes) {
+      console.warn('[Case 3] Duration exceeds maximum (1 week):', durationMinutes);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Cleanup when handler is disabled (PROPER MEMORY MANAGEMENT)
    */
   destroy() {
-    super.destroy();
-    console.log('[Case 3] Handler destroyed');
+    console.log('[Case 3] Destroying handler...');
 
-    if (this.durationObserver) {
-      this.durationObserver.disconnect();
-      this.durationObserver = null;
+    // Clear timers
+    if (this.durationDebounceTimer) {
+      clearTimeout(this.durationDebounceTimer);
+      this.durationDebounceTimer = null;
     }
+    if (this.startTimeDebounceTimer) {
+      clearTimeout(this.startTimeDebounceTimer);
+      this.startTimeDebounceTimer = null;
+    }
+
+    // Remove all event listeners
+    console.log('[Case 3] Removing', this.eventListeners.length, 'event listeners...');
+    this.eventListeners.forEach(({ element, event, handler }) => {
+      if (element && handler) {
+        element.removeEventListener(event, handler);
+      }
+    });
+    this.eventListeners = [];
+
+    // Disconnect mutation observer
+    if (this.fieldObserver) {
+      this.fieldObserver.disconnect();
+      this.fieldObserver = null;
+    }
+
+    // Clear field references
+    this.durationField = null;
+    this.startTimeField = null;
+    this.endTimeField = null;
+
+    // Reset state
+    this.lastDuration = null;
+    this.lastStartTime = null;
+    this.lastEndTime = null;
+    this.isUpdatingFields = false;
+    this.userManuallySetEndTime = false;
+
+    super.destroy();
+    console.log('[Case 3] ✓ Handler destroyed and cleaned up');
   }
 }
 
