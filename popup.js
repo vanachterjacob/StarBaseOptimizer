@@ -20,6 +20,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       id: 'imageLightbox',
       name: 'Image Lightbox',
       description: 'Display timeline images in fullscreen lightbox when clicked'
+    },
+    {
+      id: 'timelineExporter',
+      name: 'Timeline Markdown Exporter',
+      description: 'Exports the full case timeline to a Markdown file'
     }
     // Future modules will be added here automatically as they're created
   ];
@@ -192,7 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    */
   async function notifyContentScripts(message) {
     try {
-      const tabs = await chrome.tabs.query({ url: 'https://starbase.crm4.dynamics.com/*' });
+      const tabs = await chrome.tabs.query({ url: 'https://*.crm4.dynamics.com/*' });
 
       const promises = tabs.map(tab =>
         chrome.tabs.sendMessage(tab.id, message)

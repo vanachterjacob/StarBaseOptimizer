@@ -7,7 +7,7 @@ class MessageRouter {
   constructor() {
     this.handlers = new Map();
     this.isIframe = window.self !== window.top;
-    this.origin = 'https://starbase.crm4.dynamics.com';
+    this.origin = window.location.origin;
     this.setupListener();
 
     console.log('[MessageRouter] Initialized in', this.isIframe ? 'IFRAME' : 'MAIN WINDOW');

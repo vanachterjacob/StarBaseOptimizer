@@ -1,21 +1,22 @@
 {
   "manifest_version": 3,
   "name": "StarBase Optimizer",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Automates workflows in Microsoft Dynamics 365 CRM for StarBase support team",
   "permissions": [
     "storage",
-    "notifications"
+    "notifications",
+    "downloads"
   ],
   "host_permissions": [
-    "https://starbase.crm4.dynamics.com/*"
+    "https://*.crm4.dynamics.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://starbase.crm4.dynamics.com/*"],
+      "matches": ["https://*.crm4.dynamics.com/*"],
       "js": [
         "utils/base-handler.js",
         "utils/field-utils.js",
@@ -24,6 +25,7 @@
         "utils/notifications.js",
         "utils/module-registry.js",
         "modules/case1.js",
+        "modules/timeline-exporter.js",
         "modules/image-lightbox.js",
         "content-script.js"
       ],

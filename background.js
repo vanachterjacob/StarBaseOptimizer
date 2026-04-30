@@ -45,6 +45,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   }
 
+  if (message.type === 'DOWNLOAD_FILE') {
+    chrome.downloads.download({
+      url: message.url,
+      filename: message.filename,
+      conflictAction: 'uniquify',
+      saveAs: false
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+
+      sendResponse({ success: Boolean(downloadId), downloadId });
+    });
+  }
+
   return true;
 });
 
@@ -57,7 +73,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     console.log('[StarBase Optimizer - Background] Extension enabled status changed:', isEnabled);
 
     // Notify all tabs about the change
-    chrome.tabs.query({ url: 'https://starbase.crm4.dynamics.com/*' }, (tabs) => {
+    chrome.tabs.query({ url: 'https://*.crm4.dynamics.com/*' }, (tabs) => {
       tabs.forEach(tab => {
         chrome.tabs.sendMessage(tab.id, {
           type: 'TOGGLE_ENABLED',
