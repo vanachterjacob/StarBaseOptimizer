@@ -346,7 +346,15 @@ class TimelineExporterHandler extends BaseHandler {
     if (filter.type === 'all') return entries;
 
     if (filter.type === 'count') {
-      return entries.slice(0, filter.count);
+      const sorted = [...entries].sort((a, b) => {
+        const dateA = this.parseEntryDate(a.dateTime);
+        const dateB = this.parseEntryDate(b.dateTime);
+        if (!dateA && !dateB) return 0;
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateB - dateA;
+      });
+      return sorted.slice(0, filter.count);
     }
 
     const now = new Date();
@@ -1238,18 +1246,30 @@ class TimelineExporterHandler extends BaseHandler {
     const allImageFiles = entries.flatMap(entry =>
       (entry.attachmentFiles || [])
         .filter(file => (file.url || file.entityIds?.length) && this.isImageAttachmentFile(file))
+        .filter(file => this.isLikelyCustomerScreenshot(file))
         .map(file => ({ ...file }))
     );
 
-    const uniqueFiles = [];
+    const contentFingerprint = (file) => {
+      if (file.dataUrl) {
+        const base64Part = file.dataUrl.split(',')[1] || '';
+        return `dataurl|${base64Part.length}|${base64Part.substring(0, 64)}`;
+      }
+      if (file.url) return `url|${file.url}`;
+      return `ref|${file.filename}|${file.entityIds?.join(':')}`;
+    };
+
+    const uniqueByContent = [];
+    const seenFingerprints = new Set();
     for (const file of allImageFiles) {
-      const key = `${file.filename.toLowerCase()}|${file.url || ''}|${file.entityIds?.join(':') || ''}`;
-      if (!uniqueFiles.some(existing => existing.key === key)) {
-        uniqueFiles.push({ ...file, key });
+      const fp = contentFingerprint(file);
+      if (!seenFingerprints.has(fp)) {
+        seenFingerprints.add(fp);
+        uniqueByContent.push(file);
       }
     }
 
-    return uniqueFiles.map((file, index) => ({
+    return uniqueByContent.map((file, index) => ({
       ...file,
       numberedName: `${String(index + 1).padStart(3, '0')}-${this.sanitizeAttachmentFilename(file.filename)}`
     }));
@@ -1447,13 +1467,20 @@ class TimelineExporterHandler extends BaseHandler {
               continue;
             }
 
-            attachments.push({
+            const candidate = {
               filename,
               url: '',
               dataUrl: `data:${mimeType};base64,${body}`,
               source: 'dataverse-activity',
               entityIds: [item[query.idField]].filter(Boolean)
-            });
+            };
+
+            if (!this.isLikelyCustomerScreenshot(candidate)) {
+              console.debug('[TimelineExporter] Skipping non-screenshot attachment:', filename);
+              continue;
+            }
+
+            attachments.push(candidate);
           }
 
           break;
@@ -1552,6 +1579,34 @@ class TimelineExporterHandler extends BaseHandler {
     return file?.source === 'inline-image' ||
       /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(filename) ||
       /^data:image\//i.test(url);
+  }
+
+  isLikelyCustomerScreenshot(file) {
+    const filename = String(file?.filename || '').toLowerCase();
+    const source = String(file?.source || '');
+
+    const logoPatterns = /\b(logo|icon|brand|banner|badge|avatar|favicon|header[-_]?img|footer[-_]?img|spacer|pixel|tracking|sig[-_]?img|signature[-_]?img|email[-_]?sig|e[-_]?sign)\b/i;
+    if (logoPatterns.test(filename)) return false;
+
+    const commonLogoNames = [
+      'image001.png', 'image002.png', 'image003.png', 'image004.png', 'image005.png',
+      'image001.jpg', 'image002.jpg', 'image003.jpg', 'image004.jpg', 'image005.jpg'
+    ];
+    if (commonLogoNames.includes(filename)) return false;
+
+    if (/^inline-image-0[1-2]\./i.test(filename)) return false;
+
+    if (/^image\d{6,}\./i.test(filename)) return false;
+
+    if (/^(cid[-_])/.test(filename) && source === 'cid') return false;
+
+    if (file?.dataUrl) {
+      const base64Part = file.dataUrl.split(',')[1] || '';
+      const estimatedBytes = Math.floor(base64Part.length * 0.75);
+      if (estimatedBytes < 5000) return false;
+    }
+
+    return true;
   }
 
   filenameFromUrl(value) {

@@ -1,0 +1,33 @@
+StarBase Optimizer - Debug Log
+Export time : 2026-04-30T11:34:30.910Z
+URL         : https://starbase.crm4.dynamics.com/main.aspx?forceUCI=1&appid=3dd83944-5b12-eb11-a812-000d3aa87ea7
+Case        : CAS-62562-M7C4N9 — Aanpassingen layout verkoopfacturen
+
+
+--- Console Output ---
+[2026-04-30T11:32:53.987Z] [LOG] [ModuleRegistry] Registered module: Timeline Markdown Exporter (timelineExporter)
+[2026-04-30T11:32:53.987Z] [LOG] [TimelineExporter] Module registered with registry
+[2026-04-30T11:32:53.988Z] [LOG] [ModuleRegistry] Registered module: Image Lightbox (imageLightbox)
+[2026-04-30T11:32:53.988Z] [LOG] [StarBase Optimizer] Content script loaded [MAIN WINDOW]
+[2026-04-30T11:32:53.989Z] [LOG] [StarBase Optimizer] Content script ready
+[2026-04-30T11:32:54.998Z] [LOG] [StarBase Optimizer [MAIN WINDOW]] Initializing...
+[2026-04-30T11:32:55.192Z] [LOG] [StarBase Optimizer [MAIN WINDOW]] Extension enabled: true
+[2026-04-30T11:32:55.192Z] [LOG] [StarBase Optimizer [MAIN WINDOW]] Initializing modules...
+[2026-04-30T11:32:55.192Z] [LOG] [ModuleRegistry] Initializing all enabled modules...
+[2026-04-30T11:32:55.284Z] [LOG] [ModuleRegistry] User settings: {"timelineExporter":true}
+[2026-04-30T11:32:55.284Z] [LOG] [ModuleRegistry] Initializing Auto-set First Response Sent (case1)...
+[2026-04-30T11:32:55.285Z] [LOG] [Case 1] Initializing... [MAIN WINDOW]
+[2026-04-30T11:32:55.285Z] [LOG] [Case 1] Not on a case page - skipping initialization
+[2026-04-30T11:32:55.285Z] [LOG] [ModuleRegistry] ✓ Auto-set First Response Sent initialized successfully
+[2026-04-30T11:32:55.285Z] [LOG] [ModuleRegistry] Initializing Timeline Markdown Exporter (timelineExporter)...
+[2026-04-30T11:32:55.285Z] [LOG] [TimelineExporter] Starting lightweight timeline watcher
+[2026-04-30T11:32:55.285Z] [LOG] [TimelineExporter] Timeline exporter initialized
+[2026-04-30T11:32:55.285Z] [LOG] [ModuleRegistry] ✓ Timeline Markdown Exporter initialized successfully
+[2026-04-30T11:32:55.285Z] [LOG] [ModuleRegistry] Initializing Image Lightbox (imageLightbox)...
+[2026-04-30T11:32:55.285Z] [LOG] [ImageLightbox] Initializing image lightbox handler
+[2026-04-30T11:32:55.286Z] [LOG] [ImageLightbox] Lightbox container created
+[2026-04-30T11:32:55.286Z] [LOG] [ImageLightbox] Click listeners set up
+[2026-04-30T11:32:55.286Z] [LOG] [ImageLightbox] Image lightbox handler initialized
+[2026-04-30T11:32:55.286Z] [LOG] [ModuleRegistry] ✓ Image Lightbox initialized successfully
+[2026-04-30T11:32:55.286Z] [LOG] [ModuleRegistry] Initialization complete: 3 succeeded, 0 failed
+[2026-04-30T11:32:55.286Z] [LOG] [StarBase Optimizer' + frameInfo + '] Initialization complete: 3 succeeded, 0 failed, 3 total
